@@ -34,6 +34,16 @@ const ANIMAL_TYPES = {
   leao:     { body: 0xd6a44c, belly: 0xeccf93, radius: 15, speed: 145, label: 'leão',            desc: 'rugido que atordoa', ability: 'roar',   cooldown: 5000, eats: ['zebra'],  scare: { name: 'patada',  range: 130, push: 220, stun: 2400 } },
   tigre:    { body: 0xe0852a, belly: 0xf4d7b0, radius: 15, speed: 152, label: 'tigre',           desc: 'bote feroz',         ability: 'charge', cooldown: 3400, eats: ['macaco'], scare: { name: 'bote',    range: 130, push: 230, stun: 2500 } },
   hiena:    { body: 0x9a8460, belly: 0xc8b890, radius: 12, speed: 150, label: 'hiena',           desc: 'disparada em bando', ability: 'dash',   cooldown: 2200, eats: ['tatu'],   scare: { name: 'mordida', range: 100, push: 170, stun: 1700 } },
+
+  // --- novos fugitivos (presas) ---
+  sapo:     { body: 0x3a8a3a, belly: 0xcfe8a0, radius: 7,  speed: 150, label: 'sapo',            desc: 'salto de sapo',      ability: 'jump',   cooldown: 1300, eats: [],          scare: { name: 'coaxada', range: 60,  push: 80,  stun: 800 } },
+  esquilo:  { body: 0xa9662e, belly: 0xe8d4b0, radius: 7,  speed: 158, label: 'esquilo',         desc: 'salto entre galhos', ability: 'jump',   cooldown: 1300, eats: [],          scare: { name: 'arranhão', range: 55, push: 70,  stun: 700 } },
+  ovelha:   { body: 0xeaeaea, belly: 0xfafafa, radius: 12, speed: 130, label: 'ovelha',          desc: 'disparada da manada',ability: 'sprint', cooldown: 4000, eats: [],          scare: { name: 'cabeçada', range: 80, push: 120, stun: 1200 } },
+
+  // --- novos predadores ---
+  garca:    { body: 0xc8d0d6, belly: 0xffffff, radius: 11, speed: 150, label: 'garça',           desc: 'voo e bicada',       ability: 'flight', cooldown: 5500, eats: ['sapo'],    scare: { name: 'bicada',  range: 95,  push: 150, stun: 1500 } },
+  gaviao:   { body: 0x6e5a3a, belly: 0xd8c8a0, radius: 11, speed: 155, label: 'gavião',          desc: 'voo rasante',        ability: 'flight', cooldown: 5200, eats: ['esquilo'], scare: { name: 'garras',  range: 100, push: 160, stun: 1500 } },
+  lobo:     { body: 0x8a8f96, belly: 0xc8ccd0, radius: 13, speed: 150, label: 'lobo',            desc: 'caça em alcateia',   ability: 'dash',   cooldown: 2200, eats: ['ovelha'],  scare: { name: 'mordida', range: 100, push: 180, stun: 1800 } },
 };
 
 function canEat(a, b) {
@@ -59,6 +69,12 @@ const BASES = [
   { type: 'leao',     x: 350,  y: 1600, radius: 150 },
   { type: 'tigre',    x: 2850, y: 1380, radius: 150 },
   { type: 'hiena',    x: 1600, y: 1380, radius: 140 },
+  { type: 'sapo',     x: 300,  y: 700,  radius: 125 },
+  { type: 'esquilo',  x: 2450, y: 700,  radius: 125 },
+  { type: 'ovelha',   x: 2400, y: 2080, radius: 135 },
+  { type: 'garca',    x: 820,  y: 2080, radius: 130 },
+  { type: 'gaviao',   x: 2900, y: 690,  radius: 130 },
+  { type: 'lobo',     x: 300,  y: 1250, radius: 130 },
 ];
 
 const PREDATORS_OF = {};
@@ -149,6 +165,15 @@ class Animal {
     }).setOrigin(0.5).setVisible(false);
     this.container.add(this.alertMark);
 
+    // balão de emoção (😱 fugindo, 😋 comendo, 😵 atordoado...)
+    this.emote = scene.add.text(0, -this.spec.radius - 30, '', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '22px',
+    }).setOrigin(0.5).setVisible(false);
+    this.container.add(this.emote);
+    this.emoteUntil = 0;
+    // fase aleatória pra respiração/balanço não ficarem sincronizados entre bichos
+    this.bobPhase = Math.random() * Math.PI * 2;
+
     this.wanderTimer = 0;
     this.wanderDir = { x: 0, y: 0 };
     this.npcAbilityReadyAt = 1000 + Math.random() * 3000;
@@ -183,10 +208,25 @@ class Animal {
   }
 
   sync(now) {
-    this.container.setPosition(this.x, this.y);
+    // detecta movimento comparando com o frame anterior (pro bob de caminhada)
+    const dxm = this.x - (this._px ?? this.x);
+    const dym = this.y - (this._py ?? this.y);
+    this._px = this.x; this._py = this.y;
+    const moving = (dxm * dxm + dym * dym) > 0.25;
+
     const giant = now < (this.giantUntil || 0);
     const s = giant ? 2.5 : 1;
-    this.container.setScale(this.facing * s, s);
+    // respiração sutil o tempo todo; andando, agacha/estica e dá um pulinho
+    let sqX = 1, sqY = 1 + Math.sin(now / 600 + this.bobPhase) * 0.025;
+    let hop = 0;
+    if (moving) {
+      const t = now / 80 + this.bobPhase;
+      sqY = 1 + Math.sin(t) * 0.10;
+      sqX = 1 - Math.sin(t) * 0.06;
+      hop = Math.abs(Math.sin(t)) * 3 * s;
+    }
+    this.container.setPosition(this.x, this.y - hop);
+    this.container.setScale(this.facing * s * sqX, s * sqY);
     this.label.setScale(this.facing, 1);
     this.container.setDepth(this.y);
     const invuln = now < this.invulnerableUntil;
@@ -194,6 +234,17 @@ class Animal {
     this.container.setAlpha(invisible ? 0.12 : (invuln ? 0.5 : (this.isHidden ? 0.6 : 1)));
     this.alertMark.setVisible(now < this.alertedUntil);
     this.alertMark.setScale(this.facing, 1);
+    const showEmote = now < this.emoteUntil;
+    this.emote.setVisible(showEmote);
+    if (showEmote) this.emote.setScale(this.facing, 1);
+  }
+
+  // mostra um emoji acima da cabeça por um instante
+  showEmote(char, dur = 950) {
+    const now = this.scene.time.now;
+    this.emote.setText(char).setVisible(true).setAlpha(1);
+    this.emoteUntil = now + dur;
+    this.scene.tweens.add({ targets: this.emote, alpha: 0, delay: Math.max(0, dur - 350), duration: 350 });
   }
 
   updateNpc(delta, now, player) {
@@ -335,7 +386,8 @@ class Animal {
     const waterMult = this.type === 'capybara' && isInWater(this.x, this.y) ? 2.0 : 1;
     const envMult = this.scene.envSpeedMult ? this.scene.envSpeedMult(this) : 1;
     const sprintMult = this.isPlayer ? (this.scene.sprintMult || 1) : 1;
-    const mult = speedMult * waterMult * envMult * sprintMult;
+    const upgradeMult = this.isPlayer ? (this.scene.upgradeSpeedMult || 1) : 1;
+    const mult = speedMult * waterMult * envMult * sprintMult * upgradeMult;
     if (len > 0) {
       dx /= len; dy /= len;
       this.setPosition(
@@ -1079,12 +1131,785 @@ const ANIMAL_DRAWERS = {
     g.fillStyle(0xffffff, 1);
     g.fillCircle(cx + r * 1.07, cy - r * 0.34, r * 0.04);
   },
+
+  sapo(g, cx, cy, r, spec) {
+    // patas
+    g.fillStyle(spec.body, 1);
+    g.fillEllipse(cx - r * 0.9, cy + r * 0.7, r * 0.5, r * 0.3);
+    g.fillEllipse(cx + r * 0.9, cy + r * 0.7, r * 0.5, r * 0.3);
+    // corpo achatado
+    g.fillEllipse(cx, cy, r * 1.6, r * 1.2);
+    g.fillStyle(spec.belly, 1);
+    g.fillEllipse(cx, cy + r * 0.35, r * 1.1, r * 0.7);
+    // manchas
+    g.fillStyle(0x2a6a2a, 0.6);
+    g.fillCircle(cx - r * 0.7, cy - r * 0.2, r * 0.25);
+    g.fillCircle(cx + r * 0.6, cy - r * 0.1, r * 0.2);
+    // olhos saltados
+    g.fillStyle(spec.body, 1);
+    g.fillCircle(cx - r * 0.5, cy - r * 0.9, r * 0.42);
+    g.fillCircle(cx + r * 0.5, cy - r * 0.9, r * 0.42);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(cx - r * 0.5, cy - r * 0.95, r * 0.26);
+    g.fillCircle(cx + r * 0.5, cy - r * 0.95, r * 0.26);
+    g.fillStyle(0x111111, 1);
+    g.fillCircle(cx - r * 0.5, cy - r * 0.92, r * 0.13);
+    g.fillCircle(cx + r * 0.5, cy - r * 0.92, r * 0.13);
+    // sorriso
+    g.lineStyle(Math.max(1, r * 0.08), 0x1f4f1f, 1);
+    g.beginPath();
+    g.arc(cx, cy + r * 0.05, r * 0.7, 0.12 * Math.PI, 0.88 * Math.PI);
+    g.strokePath();
+  },
+
+  esquilo(g, cx, cy, r, spec) {
+    // cauda peluda
+    g.fillStyle(spec.body, 1);
+    g.fillEllipse(cx - r * 1.2, cy - r * 0.25, r * 0.75, r * 1.45);
+    g.fillStyle(0xc98a4a, 0.6);
+    g.fillEllipse(cx - r * 1.2, cy - r * 0.25, r * 0.42, r * 1.05);
+    // corpo
+    g.fillStyle(spec.body, 1);
+    g.fillEllipse(cx, cy, r * 1.1, r * 1.4);
+    g.fillStyle(spec.belly, 1);
+    g.fillEllipse(cx, cy + r * 0.3, r * 0.7, r * 0.95);
+    // cabeça
+    g.fillStyle(spec.body, 1);
+    g.fillCircle(cx + r * 0.1, cy - r * 0.9, r * 0.7);
+    // orelhas
+    g.fillTriangle(cx - r * 0.4, cy - r * 1.35, cx - r * 0.05, cy - r * 1.35, cx - r * 0.25, cy - r * 1.9);
+    g.fillTriangle(cx + r * 0.3, cy - r * 1.35, cx + r * 0.65, cy - r * 1.35, cx + r * 0.5, cy - r * 1.9);
+    // olhos
+    g.fillStyle(0x111111, 1);
+    g.fillCircle(cx - r * 0.12, cy - r * 0.95, r * 0.17);
+    g.fillCircle(cx + r * 0.38, cy - r * 0.9, r * 0.17);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(cx - r * 0.08, cy - r * 1.0, r * 0.05);
+    g.fillCircle(cx + r * 0.42, cy - r * 0.95, r * 0.05);
+    // focinho
+    g.fillStyle(0x6a3a2a, 1);
+    g.fillCircle(cx + r * 0.15, cy - r * 0.6, r * 0.1);
+    // mãozinhas
+    g.fillStyle(spec.belly, 1);
+    g.fillCircle(cx + r * 0.22, cy + r * 0.25, r * 0.18);
+  },
+
+  ovelha(g, cx, cy, r, spec) {
+    // pernas
+    g.fillStyle(0x3a3a3a, 1);
+    g.fillRect(cx - r * 0.6, cy + r * 0.55, r * 0.18, r * 0.7);
+    g.fillRect(cx + r * 0.4, cy + r * 0.55, r * 0.18, r * 0.7);
+    // lã (vários montes)
+    g.fillStyle(spec.body, 1);
+    const bumps = [[-0.8, 0, 0.5], [-0.4, -0.5, 0.55], [0.2, -0.6, 0.55], [0.7, -0.2, 0.5], [0.5, 0.3, 0.5], [-0.3, 0.35, 0.5], [0, -0.1, 0.7]];
+    for (const [sx, sy, sr] of bumps) g.fillCircle(cx + r * sx, cy + r * sy, r * sr);
+    // cabeça
+    g.fillStyle(0x4a4038, 1);
+    g.fillEllipse(cx + r * 0.9, cy - r * 0.15, r * 0.45, r * 0.55);
+    g.fillEllipse(cx + r * 0.62, cy - r * 0.45, r * 0.26, r * 0.14);
+    g.fillEllipse(cx + r * 1.18, cy - r * 0.45, r * 0.26, r * 0.14);
+    // topete de lã
+    g.fillStyle(spec.body, 1);
+    g.fillCircle(cx + r * 0.82, cy - r * 0.55, r * 0.24);
+    // olho
+    g.fillStyle(0x111111, 1);
+    g.fillCircle(cx + r * 1.0, cy - r * 0.2, r * 0.1);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(cx + r * 1.03, cy - r * 0.24, r * 0.04);
+  },
+
+  garca(g, cx, cy, r, spec) {
+    // pernas longas
+    g.lineStyle(Math.max(1.5, r * 0.12), 0xe0a030, 1);
+    g.lineBetween(cx - r * 0.3, cy + r * 0.6, cx - r * 0.38, cy + r * 1.5);
+    g.lineBetween(cx + r * 0.3, cy + r * 0.6, cx + r * 0.42, cy + r * 1.5);
+    // corpo
+    g.fillStyle(spec.body, 1);
+    g.fillEllipse(cx, cy + r * 0.1, r * 1.3, r * 1.5);
+    g.fillStyle(spec.belly, 1);
+    g.fillEllipse(cx, cy + r * 0.4, r * 0.85, r * 1.0);
+    // asa
+    g.fillStyle(0xaab2b8, 1);
+    g.fillEllipse(cx + r * 0.25, cy, r * 0.6, r * 1.1);
+    // pescoço em S + cabeça
+    g.lineStyle(Math.max(2, r * 0.32), spec.body, 1);
+    g.beginPath();
+    g.moveTo(cx, cy - r * 0.7);
+    g.lineTo(cx + r * 0.5, cy - r * 1.5);
+    g.lineTo(cx + r * 0.2, cy - r * 2.1);
+    g.strokePath();
+    g.fillStyle(spec.body, 1);
+    g.fillCircle(cx + r * 0.2, cy - r * 2.25, r * 0.4);
+    // bico longo
+    g.fillStyle(0xf0b030, 1);
+    g.fillTriangle(cx + r * 0.45, cy - r * 2.35, cx + r * 0.45, cy - r * 2.15, cx + r * 1.7, cy - r * 2.25);
+    // crista
+    g.fillStyle(0x6a7078, 1);
+    g.fillTriangle(cx + r * 0.0, cy - r * 2.3, cx + r * 0.15, cy - r * 2.35, cx - r * 0.4, cy - r * 2.5);
+    // olho
+    g.fillStyle(0x111111, 1);
+    g.fillCircle(cx + r * 0.32, cy - r * 2.32, r * 0.1);
+  },
+
+  gaviao(g, cx, cy, r, spec) {
+    // asas abertas
+    g.fillStyle(spec.body, 1);
+    g.fillTriangle(cx - r * 0.3, cy - r * 0.1, cx - r * 1.9, cy - r * 0.6, cx - r * 0.6, cy + r * 0.8);
+    g.fillTriangle(cx + r * 0.3, cy - r * 0.1, cx + r * 1.9, cy - r * 0.6, cx + r * 0.6, cy + r * 0.8);
+    g.fillStyle(0x4a3c26, 0.6);
+    g.fillTriangle(cx - r * 0.6, cy, cx - r * 1.7, cy - r * 0.4, cx - r * 0.7, cy + r * 0.5);
+    g.fillTriangle(cx + r * 0.6, cy, cx + r * 1.7, cy - r * 0.4, cx + r * 0.7, cy + r * 0.5);
+    // corpo
+    g.fillStyle(spec.body, 1);
+    g.fillEllipse(cx, cy, r * 1.05, r * 1.35);
+    g.fillStyle(spec.belly, 1);
+    g.fillEllipse(cx, cy + r * 0.3, r * 0.7, r * 0.95);
+    g.lineStyle(Math.max(1, r * 0.06), 0x6e5a3a, 0.5);
+    for (let i = -1; i <= 1; i++) g.lineBetween(cx - r * 0.4, cy + r * 0.2 + i * r * 0.25, cx + r * 0.4, cy + r * 0.2 + i * r * 0.25);
+    // cabeça
+    g.fillStyle(spec.body, 1);
+    g.fillCircle(cx, cy - r * 0.9, r * 0.65);
+    // olhos ferozes
+    g.fillStyle(0xffcc33, 1);
+    g.fillCircle(cx - r * 0.25, cy - r * 0.95, r * 0.2);
+    g.fillCircle(cx + r * 0.25, cy - r * 0.95, r * 0.2);
+    g.fillStyle(0x111111, 1);
+    g.fillCircle(cx - r * 0.25, cy - r * 0.95, r * 0.1);
+    g.fillCircle(cx + r * 0.25, cy - r * 0.95, r * 0.1);
+    // bico curvo
+    g.fillStyle(0xf0c030, 1);
+    g.fillTriangle(cx - r * 0.13, cy - r * 0.55, cx + r * 0.13, cy - r * 0.55, cx, cy - r * 0.18);
+    g.fillStyle(0x111111, 1);
+    g.fillTriangle(cx - r * 0.05, cy - r * 0.28, cx + r * 0.05, cy - r * 0.28, cx, cy - r * 0.1);
+  },
+
+  lobo(g, cx, cy, r, spec) {
+    // cauda
+    g.fillStyle(spec.body, 1);
+    g.fillEllipse(cx - r * 1.3, cy + r * 0.1, r * 0.9, r * 0.4);
+    g.fillStyle(0x5a5f66, 1);
+    g.fillCircle(cx - r * 1.85, cy + r * 0.1, r * 0.25);
+    // corpo
+    g.fillStyle(spec.body, 1);
+    g.fillEllipse(cx, cy, r * 1.6, r * 1.1);
+    g.fillStyle(spec.belly, 1);
+    g.fillEllipse(cx, cy + r * 0.35, r * 1.1, r * 0.7);
+    // patas
+    g.fillStyle(0x6a6f76, 1);
+    g.fillRect(cx - r * 0.5, cy + r * 0.6, r * 0.2, r * 0.5);
+    g.fillRect(cx + r * 0.3, cy + r * 0.6, r * 0.2, r * 0.5);
+    // cabeça
+    g.fillStyle(spec.body, 1);
+    g.fillCircle(cx + r * 0.9, cy - r * 0.2, r * 0.7);
+    // orelhas pontudas
+    g.fillTriangle(cx + r * 0.5, cy - r * 0.7, cx + r * 0.8, cy - r * 0.7, cx + r * 0.6, cy - r * 1.4);
+    g.fillTriangle(cx + r * 1.0, cy - r * 0.7, cx + r * 1.3, cy - r * 0.7, cx + r * 1.15, cy - r * 1.4);
+    g.fillStyle(0x4a4f56, 1);
+    g.fillTriangle(cx + r * 0.58, cy - r * 0.75, cx + r * 0.75, cy - r * 0.75, cx + r * 0.63, cy - r * 1.2);
+    g.fillTriangle(cx + r * 1.05, cy - r * 0.75, cx + r * 1.22, cy - r * 0.75, cx + r * 1.15, cy - r * 1.2);
+    // focinho
+    g.fillStyle(spec.belly, 1);
+    g.fillEllipse(cx + r * 1.45, cy - r * 0.02, r * 0.5, r * 0.35);
+    g.fillStyle(0x111111, 1);
+    g.fillEllipse(cx + r * 1.75, cy - r * 0.02, r * 0.13, r * 0.1);
+    // olhos
+    g.fillStyle(0xffd24a, 1);
+    g.fillCircle(cx + r * 0.75, cy - r * 0.3, r * 0.13);
+    g.fillCircle(cx + r * 1.05, cy - r * 0.3, r * 0.13);
+    g.fillStyle(0x111111, 1);
+    g.fillRect(cx + r * 0.72, cy - r * 0.4, r * 0.05, r * 0.2);
+    g.fillRect(cx + r * 1.02, cy - r * 0.4, r * 0.05, r * 0.2);
+  },
 };
+
+// --- Som de bicho (Web Audio, 100% procedural — sem arquivos) ---------------
+// Sintetiza tudo na hora com osciladores e ruído. Inicializa de forma preguiçosa
+// no primeiro gesto do jogador (exigência dos navegadores) e nunca quebra o jogo:
+// qualquer erro de áudio é engolido silenciosamente.
+class SoundFX {
+  constructor() {
+    this.ctx = null;
+    this.master = null;
+    this.muted = false;
+    try { this.muted = localStorage.getItem('la2_muted') === '1'; } catch {}
+  }
+
+  ensure() {
+    if (this.ctx) {
+      if (this.ctx.state === 'suspended') { try { this.ctx.resume(); } catch {} }
+      return this.ctx;
+    }
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.5;
+      this.master.connect(this.ctx.destination);
+    } catch { this.ctx = null; }
+    return this.ctx;
+  }
+
+  toggleMute() {
+    this.muted = !this.muted;
+    try { localStorage.setItem('la2_muted', this.muted ? '1' : '0'); } catch {}
+    if (!this.muted) this.ensure();
+    return this.muted;
+  }
+
+  _env(node, t0, dur, vol, attack = 0.005) {
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0011, vol), t0 + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    node.connect(g); g.connect(this.master);
+    return g;
+  }
+
+  tone({ freq = 440, type = 'sine', dur = 0.2, vol = 0.3, slideTo = null, attack = 0.005, delay = 0 }) {
+    const ctx = this.ensure(); if (!ctx || this.muted) return;
+    try {
+      const t0 = ctx.currentTime + delay;
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t0);
+      if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t0 + dur);
+      this._env(o, t0, dur, vol, attack);
+      o.start(t0); o.stop(t0 + dur + 0.03);
+    } catch {}
+  }
+
+  noise({ dur = 0.2, vol = 0.3, filter = 1200, type = 'lowpass', delay = 0 }) {
+    const ctx = this.ensure(); if (!ctx || this.muted) return;
+    try {
+      const t0 = ctx.currentTime + delay;
+      const n = Math.max(1, Math.floor(ctx.sampleRate * dur));
+      const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = filter;
+      src.connect(f);
+      this._env(f, t0, dur, vol);
+      src.start(t0); src.stop(t0 + dur + 0.03);
+    } catch {}
+  }
+
+  // --- vozes / efeitos nomeados ---
+  roar(vol = 1) {
+    this.tone({ freq: 180, type: 'sawtooth', dur: 0.5, vol: 0.32 * vol, slideTo: 70 });
+    this.tone({ freq: 90, type: 'square', dur: 0.55, vol: 0.16 * vol, slideTo: 48 });
+    this.noise({ dur: 0.5, vol: 0.16 * vol, filter: 600 });
+  }
+  bite(vol = 1) {
+    this.noise({ dur: 0.12, vol: 0.3 * vol, filter: 2500, type: 'bandpass' });
+    this.tone({ freq: 320, type: 'square', dur: 0.1, vol: 0.18 * vol, slideTo: 110 });
+  }
+  eat(vol = 1) {
+    this.noise({ dur: 0.18, vol: 0.26 * vol, filter: 1400 });
+    this.tone({ freq: 220, type: 'triangle', dur: 0.14, vol: 0.16 * vol, slideTo: 90 });
+  }
+  coin(vol = 1) {
+    this.tone({ freq: 988, type: 'square', dur: 0.08, vol: 0.16 * vol });
+    this.tone({ freq: 1319, type: 'square', dur: 0.12, vol: 0.16 * vol, delay: 0.07 });
+  }
+  powerup(vol = 1) {
+    this.tone({ freq: 523, type: 'triangle', dur: 0.1, vol: 0.18 * vol });
+    this.tone({ freq: 784, type: 'triangle', dur: 0.1, vol: 0.18 * vol, delay: 0.09 });
+    this.tone({ freq: 1047, type: 'triangle', dur: 0.14, vol: 0.18 * vol, delay: 0.18 });
+  }
+  gigacoin() {
+    [523, 659, 784, 1047].forEach((f, i) => this.tone({ freq: f, type: 'square', dur: 0.18, vol: 0.22, delay: i * 0.1 }));
+    this.tone({ freq: 1568, type: 'square', dur: 0.42, vol: 0.2, delay: 0.45 });
+  }
+  dash(vol = 1) {
+    this.noise({ dur: 0.22, vol: 0.16 * vol, filter: 900, type: 'highpass' });
+    this.tone({ freq: 600, type: 'sine', dur: 0.2, vol: 0.09 * vol, slideTo: 1200 });
+  }
+  jump(vol = 1) { this.tone({ freq: 300, type: 'sine', dur: 0.18, vol: 0.2 * vol, slideTo: 760 }); }
+  charge(vol = 1) {
+    this.tone({ freq: 140, type: 'sawtooth', dur: 0.3, vol: 0.22 * vol, slideTo: 320 });
+    this.noise({ dur: 0.3, vol: 0.12 * vol, filter: 800 });
+  }
+  dig(vol = 1) { this.noise({ dur: 0.3, vol: 0.2 * vol, filter: 500 }); }
+  whoosh(vol = 1) { this.noise({ dur: 0.3, vol: 0.12 * vol, filter: 700, type: 'bandpass' }); }
+  step(pitch = 1) { this.noise({ dur: 0.06, vol: 0.05, filter: Math.max(120, 300 * pitch), type: 'lowpass' }); }
+  hurt() {
+    this.tone({ freq: 400, type: 'sawtooth', dur: 0.3, vol: 0.3, slideTo: 80 });
+    this.noise({ dur: 0.2, vol: 0.14, filter: 800 });
+  }
+  win() { [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone({ freq: f, type: 'square', dur: 0.2, vol: 0.22, delay: i * 0.13 })); }
+  lose() { [392, 330, 262, 196].forEach((f, i) => this.tone({ freq: f, type: 'sawtooth', dur: 0.32, vol: 0.22, delay: i * 0.16 })); }
+  event() {
+    this.tone({ freq: 660, type: 'square', dur: 0.15, vol: 0.2 });
+    this.tone({ freq: 880, type: 'square', dur: 0.22, vol: 0.2, delay: 0.13 });
+    this.noise({ dur: 0.4, vol: 0.1, filter: 500 });
+  }
+  alert() {
+    this.tone({ freq: 740, type: 'square', dur: 0.12, vol: 0.2 });
+    this.tone({ freq: 740, type: 'square', dur: 0.12, vol: 0.2, delay: 0.18 });
+  }
+  // combo: o tom sobe a cada presa caçada em sequência
+  combo(n = 1) { this.tone({ freq: 480 + Math.min(12, n) * 70, type: 'square', dur: 0.12, vol: 0.2 }); }
+  // ambiente diurno: passarinho
+  chirp(vol = 1) {
+    const f = 1800 + Math.random() * 1500;
+    this.tone({ freq: f, type: 'sine', dur: 0.07, vol: 0.07 * vol });
+    this.tone({ freq: f * 1.5, type: 'sine', dur: 0.06, vol: 0.05 * vol, delay: 0.07 });
+  }
+  // ambiente noturno: grilo
+  cricket(vol = 1) {
+    for (let i = 0; i < 3; i++) this.tone({ freq: 2600, type: 'square', dur: 0.02, vol: 0.05 * vol, delay: i * 0.045 });
+  }
+  // ventania
+  wind(vol = 1) { this.noise({ dur: 0.9, vol: 0.16 * vol, filter: 500, type: 'bandpass' }); }
+}
+
+const SFX = new SoundFX();
+
+// --- Caos animal: eventos aleatórios que bagunçam a partida ------------------
+// Cada evento aplica um efeito imediato e (opcionalmente) tinge a tela enquanto dura.
+const EVENTS = [
+  {
+    name: 'DEBANDADA!', emoji: '🐾', text: 'a manada disparou — presas turbinadas',
+    color: 0x3a824c, cssColor: '#9be29b', duration: 8000,
+    apply(scene, now) {
+      for (const a of scene.animals) {
+        if (a.isPlayer || a.dead) continue;
+        if ((PREDATORS_OF[a.type] || []).length > 0) {
+          a.speedMult = 2.0; a.speedMultUntil = now + 8000;
+          a.alertedUntil = now + 1200;
+          a.alertSourceX = scene.player.x; a.alertSourceY = scene.player.y;
+        }
+      }
+    },
+  },
+  {
+    name: 'HORA DA CAÇADA!', emoji: '🩸', text: 'predadores turbinados e famintos',
+    color: 0x8a1a1a, cssColor: '#ff8a8a', duration: 8000,
+    apply(scene, now) {
+      for (const a of scene.animals) {
+        if (a.isPlayer || a.dead) continue;
+        if (a.spec.eats.length > 0) { a.speedMult = 1.8; a.speedMultUntil = now + 8000; }
+      }
+    },
+  },
+  {
+    name: 'CHUVA DE MOEDAS!', emoji: '🪙', text: 'moedas caindo por todo lado',
+    color: 0xffd966, cssColor: '#ffd966', duration: 5000,
+    apply(scene, now) {
+      for (let i = 0; i < 16; i++) scene.spawnCoin();
+      for (let i = 0; i < 26; i++) {
+        scene.spawnParticles(
+          scene.player.x + (Math.random() - 0.5) * 1000,
+          scene.player.y - 420 - Math.random() * 120,
+          { count: 1, color: [0xffd966, 0xb8860b, 0xfff0a0], speed: 30, dir: Math.PI / 2, spread: 0.5, life: 1600, size: 5, gravity: 520, drag: 1 },
+        );
+      }
+      SFX.coin();
+    },
+  },
+  {
+    name: 'LUA DE SANGUE!', emoji: '🌑', text: 'todo mundo mais rápido — caos total',
+    color: 0x301030, cssColor: '#e2b6ff', duration: 9000,
+    apply(scene, now) {
+      for (const a of scene.animals) {
+        if (a.dead) continue;
+        a.speedMult = 1.7; a.speedMultUntil = now + 9000;
+      }
+    },
+  },
+  {
+    name: 'VENTANIA!', emoji: '🍃', text: 'um vendaval empurrou todo mundo',
+    color: 0x6a8a9a, cssColor: '#cde7f5', duration: 4000,
+    apply(scene, now) {
+      const ang = Math.random() * Math.PI * 2;
+      const nx = Math.cos(ang), ny = Math.sin(ang);
+      for (const a of scene.animals) {
+        if (a.dead) continue;
+        a.setPosition(a.x + nx * 130, a.y + ny * 130);
+      }
+      SFX.wind();
+      // folhas atravessando a tela na direção do vento
+      for (let i = 0; i < 40; i++) {
+        scene.spawnParticles(
+          scene.player.x + (Math.random() - 0.5) * 1300 - nx * 600,
+          scene.player.y + (Math.random() - 0.5) * 1000 - ny * 600,
+          { count: 1, color: [0x3a824c, 0x2a7238, 0x8a7450, 0xc9b070], speed: 260, dir: ang, spread: 0.5, life: 1500, size: 4, drag: 1 },
+        );
+      }
+    },
+  },
+];
+
+// --- Álbum de figurinhas ---------------------------------------------------
+const RARITIES = {
+  comum:    { label: 'comum',    color: 0x9aa6a0, glow: 0xd2dcd6, weight: 50, stars: 1 },
+  raro:     { label: 'raro',     color: 0x4a9eff, glow: 0xb0d6ff, weight: 28, stars: 2 },
+  epico:    { label: 'épico',    color: 0xb05bff, glow: 0xe2b6ff, weight: 16, stars: 3 },
+  lendario: { label: 'lendário', color: 0xffc83a, glow: 0xfff0a0, weight: 6,  stars: 4 },
+};
+
+const RARITY_KEYS = Object.keys(RARITIES);
+// cada bicho tem uma figurinha de cada raridade
+const STICKER_TYPES = Object.keys(ANIMAL_TYPES);
+const ALBUM_KEY = 'la2_album_v3';
+
+function stickerId(type, rarityKey) { return `${type}:${rarityKey}`; }
+
+function loadAlbum() {
+  try {
+    const data = JSON.parse(localStorage.getItem(ALBUM_KEY) || '{}');
+    return data && typeof data === 'object' ? data : {};
+  } catch { return {}; }
+}
+
+function saveAlbum(album) {
+  try { localStorage.setItem(ALBUM_KEY, JSON.stringify(album)); } catch {}
+}
+
+// sorteia uma figurinha (bicho uniforme + raridade ponderada), salva e devolve o prêmio
+function awardSticker() {
+  const album = loadAlbum();
+  const type = STICKER_TYPES[Math.floor(Math.random() * STICKER_TYPES.length)];
+  let total = 0;
+  const weighted = RARITY_KEYS.map((rk) => {
+    total += RARITIES[rk].weight;
+    return { rk, acc: total };
+  });
+  const roll = Math.random() * total;
+  const pick = weighted.find((e) => roll <= e.acc) || weighted[weighted.length - 1];
+  const rarity = pick.rk;
+  const id = stickerId(type, rarity);
+  const isNew = !album[id];
+  album[id] = (album[id] || 0) + 1;
+  saveAlbum(album);
+  return { id, type, rarity, isNew, count: album[id] };
+}
+
+// desenha uma figurinha (carta) reaproveitada pelo álbum e pela tela de vitória
+function drawStickerCard(scene, x, y, w, h, type, rarityKey, owned, count = 0) {
+  const spec = ANIMAL_TYPES[type];
+  const rarity = RARITIES[rarityKey];
+  const rarityHex = '#' + rarity.color.toString(16).padStart(6, '0');
+  const objs = [];
+
+  const shadow = scene.add.graphics();
+  shadow.fillStyle(0x000000, 0.33);
+  shadow.fillRoundedRect(x + 3, y + 5, w, h, 12);
+  objs.push(shadow);
+
+  const card = scene.add.graphics();
+  card.fillStyle(owned ? 0x223028 : 0x161d18, 1);
+  card.fillRoundedRect(x, y, w, h, 12);
+  card.lineStyle(3, owned ? rarity.color : 0x33433a, 1);
+  card.strokeRoundedRect(x, y, w, h, 12);
+  objs.push(card);
+
+  // brilho de raridade atrás do bicho (só quando colada)
+  if (owned) {
+    const glow = scene.add.graphics();
+    glow.fillStyle(rarity.glow, 0.18);
+    glow.fillCircle(x + w / 2, y + h * 0.42, w * 0.36);
+    objs.push(glow);
+  }
+
+  const comp = owned ? getComposition(type) : null;
+  if (comp) {
+    const k = (w * 0.8) / DESIGN;
+    for (const o of renderStaticComposition(scene, x + w / 2, y + h * 0.42, k, type, comp)) objs.push(o);
+  } else {
+    objs.push(drawAnimalPreview(scene, x + w / 2, y + h * 0.44, type, w / 64));
+  }
+
+  // selo da raridade (canto superior esquerdo)
+  const stars = '★'.repeat(rarity.stars);
+  const sealW = 18 + rarity.stars * 12;
+  const seal = scene.add.graphics();
+  seal.fillStyle(owned ? rarity.color : 0x33433a, 1);
+  seal.fillRoundedRect(x + 8, y + 8, sealW, 20, 6);
+  objs.push(seal);
+  objs.push(scene.add.text(x + 8 + sealW / 2, y + 18, stars, {
+    fontFamily: 'system-ui, sans-serif', fontSize: '13px',
+    color: owned ? '#10201a' : '#5a6a60', fontStyle: 'bold',
+  }).setOrigin(0.5));
+
+  if (owned) {
+    objs.push(scene.add.text(x + w / 2, y + h - 36, spec.label, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '17px',
+      color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5));
+    objs.push(scene.add.text(x + w / 2, y + h - 15, `${stars} ${rarity.label}`, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '13px', color: rarityHex,
+    }).setOrigin(0.5));
+    if (count > 1) {
+      const badge = scene.add.graphics();
+      badge.fillStyle(rarity.color, 1);
+      badge.fillCircle(x + w - 18, y + 18, 13);
+      objs.push(badge);
+      objs.push(scene.add.text(x + w - 18, y + 18, `x${count}`, {
+        fontFamily: 'system-ui, sans-serif', fontSize: '13px',
+        color: '#10201a', fontStyle: 'bold',
+      }).setOrigin(0.5));
+    }
+  } else {
+    // silhueta bloqueada: cobre o bicho com um véu escuro e mostra "?"
+    const veil = scene.add.graphics();
+    veil.fillStyle(0x0c1410, 0.86);
+    veil.fillRoundedRect(x + 3, y + 3, w - 6, h - 6, 10);
+    objs.push(veil);
+    objs.push(scene.add.text(x + w / 2, y + h * 0.42, '?', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '46px',
+      color: '#3a4a40', fontStyle: 'bold',
+    }).setOrigin(0.5));
+    objs.push(scene.add.text(x + w / 2, y + h - 20, '🔒 a conquistar', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '13px', color: '#5a6a60',
+    }).setOrigin(0.5));
+  }
+
+  return objs;
+}
+
+// --- Oficina de figurinhas: composições (bicho + enfeites) ------------------
+const STUDIO_KEY = 'la2_studio_v1';
+const DESIGN = 460;            // espaço de desenho (coords -230..230)
+const ANIMAL_DRAW_SCALE = 5;   // escala base do bicho dentro da composição
+const ANIMAL_PART = '__animal__';
+
+const DECO_KINDS = [
+  { key: 'arbusto',   label: 'arbusto',   emoji: '🌳' },
+  { key: 'grama',     label: 'grama',     emoji: '🌿' },
+  { key: 'flor',      label: 'flor',      emoji: '🌸' },
+  { key: 'pedra',     label: 'pedra',     emoji: '🪨' },
+  { key: 'sol',       label: 'sol',       emoji: '☀️' },
+  { key: 'estrela',   label: 'estrela',   emoji: '⭐' },
+  { key: 'coracao',   label: 'coração',   emoji: '❤️' },
+  { key: 'folha',     label: 'folha',     emoji: '🍃' },
+  { key: 'cogumelo',  label: 'cogumelo',  emoji: '🍄' },
+  { key: 'nuvem',     label: 'nuvem',     emoji: '☁️' },
+  { key: 'lua',       label: 'lua',       emoji: '🌙' },
+  { key: 'borboleta', label: 'borboleta', emoji: '🦋' },
+];
+
+function loadStudio() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STUDIO_KEY) || '{}');
+    return s && typeof s === 'object' ? s : {};
+  } catch { return {}; }
+}
+function saveStudio(s) { try { localStorage.setItem(STUDIO_KEY, JSON.stringify(s)); } catch {} }
+// --- coleção de criações (várias figurinhas por bicho) ---
+const CREATIONS_KEY = 'la2_creations_v1';
+function newCreationId() { return 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36); }
+function cloneComp(comp) { return JSON.parse(JSON.stringify(comp)); }
+
+function loadCreations() {
+  try {
+    const raw = localStorage.getItem(CREATIONS_KEY);
+    if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr)) return arr; }
+    // migração do formato antigo (uma figurinha por bicho)
+    const old = loadStudio();
+    const migrated = Object.keys(old)
+      .filter((t) => old[t] && Array.isArray(old[t].parts) && old[t].parts.length)
+      .map((t) => ({ id: newCreationId(), type: t, comp: old[t] }));
+    if (migrated.length) saveCreations(migrated);
+    return migrated;
+  } catch { return []; }
+}
+function saveCreations(list) { try { localStorage.setItem(CREATIONS_KEY, JSON.stringify(list)); } catch {} }
+function getCreation(id) { return loadCreations().find((c) => c.id === id) || null; }
+function upsertCreation(entry) {
+  const list = loadCreations();
+  const i = list.findIndex((c) => c.id === entry.id);
+  if (i >= 0) list[i] = entry; else list.push(entry);
+  saveCreations(list);
+}
+function deleteCreation(id) { saveCreations(loadCreations().filter((c) => c.id !== id)); }
+
+// composição mostrada no card do álbum: a criação mais recente daquele bicho
+function getComposition(type) {
+  const list = loadCreations();
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].type === type) return list[i].comp;
+  return null;
+}
+function defaultComposition() {
+  return { parts: [{ kind: ANIMAL_PART, x: 0, y: 0, scale: 1.6, rot: 0, flip: 1 }] };
+}
+
+function drawDecoShape(g, kind) {
+  switch (kind) {
+    case 'arbusto':
+      g.fillStyle(0x174a23, 1);
+      g.fillCircle(-18, 8, 16); g.fillCircle(18, 8, 16); g.fillCircle(0, 2, 20);
+      g.fillStyle(0x2a7238, 1);
+      g.fillCircle(-10, 2, 12); g.fillCircle(12, 4, 12); g.fillCircle(0, -8, 13);
+      g.fillStyle(0x3a8a48, 0.8);
+      g.fillCircle(-4, -6, 6); g.fillCircle(8, -2, 5);
+      break;
+    case 'grama':
+      g.fillStyle(0x2a7238, 1);
+      for (let i = -2; i <= 2; i++) { const bx = i * 9; g.fillTriangle(bx - 4, 16, bx + 4, 16, bx + i * 2, -16); }
+      g.fillStyle(0x3a8a48, 1);
+      for (let i = -2; i <= 2; i++) { const bx = i * 9 + 4; g.fillTriangle(bx - 3, 16, bx + 3, 16, bx + i * 2, -8); }
+      break;
+    case 'flor':
+      g.fillStyle(0xff8fb0, 1);
+      for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; g.fillCircle(Math.cos(a) * 13, Math.sin(a) * 13, 8); }
+      g.fillStyle(0xffd966, 1); g.fillCircle(0, 0, 8);
+      break;
+    case 'pedra':
+      g.fillStyle(0x6a6a6a, 1); g.fillEllipse(0, 4, 44, 30);
+      g.fillStyle(0x8a8a8a, 1); g.fillEllipse(-4, -2, 30, 18);
+      g.fillStyle(0x9a9a9a, 0.7); g.fillEllipse(-8, -6, 12, 7);
+      break;
+    case 'sol':
+      g.fillStyle(0xffd54a, 1);
+      for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4;
+        g.fillTriangle(Math.cos(a) * 14, Math.sin(a) * 14, Math.cos(a + 0.3) * 14, Math.sin(a + 0.3) * 14, Math.cos(a + 0.15) * 26, Math.sin(a + 0.15) * 26);
+      }
+      g.fillStyle(0xffe88a, 1); g.fillCircle(0, 0, 15);
+      g.fillStyle(0xfff6c8, 0.8); g.fillCircle(-4, -4, 6);
+      break;
+    case 'estrela': {
+      const pts = [];
+      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5; const r = i % 2 ? 9 : 22; pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r }); }
+      g.fillStyle(0xffd54a, 1); g.fillPoints(pts, true);
+      break;
+    }
+    case 'coracao':
+      g.fillStyle(0xe23a4a, 1);
+      g.fillCircle(-9, -6, 11); g.fillCircle(9, -6, 11);
+      g.fillTriangle(-19, -2, 19, -2, 0, 20);
+      g.fillStyle(0xff8a96, 0.7); g.fillCircle(-9, -9, 4);
+      break;
+    case 'folha':
+      g.fillStyle(0x2a8a3a, 1); g.fillEllipse(0, 0, 22, 40);
+      g.fillStyle(0x1c5a26, 1); g.fillRect(-1.5, -18, 3, 36);
+      break;
+    case 'cogumelo':
+      g.fillStyle(0xefe0c0, 1); g.fillRect(-7, 0, 14, 18);
+      g.fillStyle(0xd23a3a, 1); g.fillEllipse(0, 0, 44, 28);
+      g.fillStyle(0xffffff, 0.95);
+      g.fillCircle(-10, -2, 4); g.fillCircle(8, -4, 3.5); g.fillCircle(2, 4, 3);
+      break;
+    case 'nuvem':
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(-14, 4, 12); g.fillCircle(0, -2, 16); g.fillCircle(14, 4, 12);
+      g.fillRect(-14, 2, 28, 11);
+      break;
+    case 'lua':
+      g.fillStyle(0xffe88a, 1); g.fillCircle(0, 0, 20);
+      g.fillStyle(0xe0c860, 0.8);
+      g.fillCircle(-6, -6, 4); g.fillCircle(7, 2, 5); g.fillCircle(-2, 9, 3);
+      break;
+    case 'borboleta':
+      g.fillStyle(0x6a5bd0, 1);
+      g.fillEllipse(-12, -8, 18, 16); g.fillEllipse(-12, 9, 14, 12);
+      g.fillEllipse(12, -8, 18, 16); g.fillEllipse(12, 9, 14, 12);
+      g.fillStyle(0xb0a0ff, 0.8); g.fillCircle(-12, -8, 5); g.fillCircle(12, -8, 5);
+      g.fillStyle(0x2a2030, 1); g.fillEllipse(0, 0, 6, 26);
+      break;
+    default:
+      g.fillStyle(0xffffff, 1); g.fillCircle(0, 0, 16);
+  }
+}
+
+function drawPartGraphics(scene, part, type) {
+  const g = scene.add.graphics();
+  if (part.kind === ANIMAL_PART) drawAnimalShape(g, type, 0, 0, ANIMAL_DRAW_SCALE);
+  else drawDecoShape(g, part.kind);
+  return g;
+}
+function applyPartTransform(g, part, cx, cy, k) {
+  g.setPosition(cx + (part.x || 0) * k, cy + (part.y || 0) * k);
+  g.setRotation(part.rot || 0);
+  g.setScale((part.flip || 1) * (part.scale || 1) * k, (part.scale || 1) * k);
+}
+function partHitRadius(part, type) {
+  if (part.kind === ANIMAL_PART) return ANIMAL_TYPES[type].radius * ANIMAL_DRAW_SCALE * 1.4;
+  return 30;
+}
+// renderiza uma composição estática (álbum / tela de vitória); devolve os objetos criados
+function renderStaticComposition(scene, cx, cy, k, type, comp) {
+  const objs = [];
+  for (const part of comp.parts) {
+    const g = drawPartGraphics(scene, part, type);
+    applyPartTransform(g, part, cx, cy, k);
+    objs.push(g);
+  }
+  return objs;
+}
+
+// --- Economia: moedas, bichos desbloqueados e melhorias ---------------------
+const SHOP_KEY = 'la2_shop_v1';
+const STARTER_ANIMALS = ['rabbit', 'fox', 'rato']; // grátis desde o início
+
+const ANIMAL_PRICES = {
+  owl: 120, deer: 120, tucano: 120, zebra: 120, macaco: 120, tatu: 120, capybara: 150,
+  sapo: 120, esquilo: 120, ovelha: 150,
+  boar: 220, gato: 220, cobra: 220, hiena: 260, garca: 240, gaviao: 260,
+  bear: 400, jaguar: 400, leao: 450, tigre: 450, lobo: 300,
+};
+
+const UPGRADES = {
+  speed:    { label: 'Velocidade',     icon: '🏃', desc: '+5% de velocidade',         max: 5, base: 60, step: 50, per: 0.05 },
+  cooldown: { label: 'Recarga',        icon: '⚡', desc: '-8% no tempo da habilidade', max: 5, base: 70, step: 55, per: 0.08 },
+  shield:   { label: 'Escudo inicial', icon: '🛡️', desc: '+1,2s de escudo no começo',  max: 5, base: 80, step: 60, per: 1200 },
+};
+const UPGRADE_KEYS = Object.keys(UPGRADES);
+
+function loadShop() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SHOP_KEY) || '{}');
+    return {
+      coins: typeof s.coins === 'number' ? s.coins : 120,
+      unlocked: s.unlocked && typeof s.unlocked === 'object' ? s.unlocked : {},
+      upgrades: s.upgrades && typeof s.upgrades === 'object' ? s.upgrades : {},
+    };
+  } catch { return { coins: 120, unlocked: {}, upgrades: {} }; }
+}
+function saveShop(s) { try { localStorage.setItem(SHOP_KEY, JSON.stringify(s)); } catch {} }
+function getCoins() { return loadShop().coins; }
+function addCoins(n) { const s = loadShop(); s.coins = Math.max(0, s.coins + n); saveShop(s); return s.coins; }
+function isUnlocked(type) {
+  if (STARTER_ANIMALS.includes(type)) return true;
+  return !!loadShop().unlocked[type];
+}
+function animalPrice(type) { return ANIMAL_PRICES[type] ?? 0; }
+function buyAnimal(type) {
+  const s = loadShop();
+  if (isUnlocked(type)) return { ok: true, already: true, coins: s.coins };
+  const price = animalPrice(type);
+  if (s.coins < price) return { ok: false, coins: s.coins, price };
+  s.coins -= price; s.unlocked[type] = true; saveShop(s);
+  return { ok: true, coins: s.coins, price };
+}
+function upgradeLevel(key) { return loadShop().upgrades[key] || 0; }
+function upgradeCost(key, level) { const u = UPGRADES[key]; return u.base + u.step * level; }
+function buyUpgrade(key) {
+  const s = loadShop(); const u = UPGRADES[key]; const lvl = s.upgrades[key] || 0;
+  if (lvl >= u.max) return { ok: false, maxed: true, coins: s.coins };
+  const cost = upgradeCost(key, lvl);
+  if (s.coins < cost) return { ok: false, coins: s.coins, cost };
+  s.coins -= cost; s.upgrades[key] = lvl + 1; saveShop(s);
+  return { ok: true, coins: s.coins, level: lvl + 1 };
+}
+// efeito agregado das melhorias aplicado ao jogador
+function upgradeEffects() {
+  const up = loadShop().upgrades;
+  return {
+    speedMult: 1 + (up.speed || 0) * UPGRADES.speed.per,
+    cooldownMult: Math.max(0.2, 1 - (up.cooldown || 0) * UPGRADES.cooldown.per),
+    shieldMs: (up.shield || 0) * UPGRADES.shield.per,
+  };
+}
 
 const GAME_MODES = {
   normal: {
     label: 'normal',
-    desc: 'população equilibrada',
+    desc: 'ecossistema sorteado em volta do seu bicho',
+    dynamic: true,
     counts: { rabbit: 12, owl: 5, fox: 4, deer: 6, boar: 3, bear: 3, capybara: 5, jaguar: 3, tucano: 4, cobra: 3, rato: 8, gato: 3, zebra: 6, macaco: 6, tatu: 6, leao: 3, tigre: 3, hiena: 3 },
   },
   alibaba: {
@@ -1099,11 +1924,41 @@ const GAME_MODES = {
   },
   turbo: {
     label: 'turbo',
-    desc: 'todo mundo com velocidade 300',
+    desc: 'ecossistema sorteado, todo mundo com velocidade 300',
+    dynamic: true,
     counts: { rabbit: 12, owl: 5, fox: 4, deer: 6, boar: 3, bear: 3, capybara: 5, jaguar: 3, tucano: 4, cobra: 3, rato: 8, gato: 3, zebra: 6, macaco: 6, tatu: 6, leao: 3, tigre: 3, hiena: 3 },
     speedOverride: 300,
   },
 };
+
+// Monta a população da partida em volta do papel do jogador:
+//  • jogador PRESA  → sorteia 5 presas (incluindo ele) + os predadores que as caçam
+//  • jogador PREDADOR → traz a(s) presa(s) dele (+ alguns aliados do mesmo tipo)
+function isPreyType(type) { return ANIMAL_TYPES[type].eats.length === 0; }
+
+function buildDynamicCounts(playerType) {
+  const spec = ANIMAL_TYPES[playerType];
+  const counts = {};
+  if (spec.eats.length > 0) {
+    counts[playerType] = 3; // o jogador + 2 aliados do mesmo predador
+    for (const prey of spec.eats) counts[prey] = 14;
+    return counts;
+  }
+  // jogador é presa: sorteia 5 tipos de presa, sempre incluindo o dele
+  const pool = Object.keys(ANIMAL_TYPES).filter((t) => isPreyType(t) && t !== playerType);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const chosen = [playerType, ...pool.slice(0, 4)];
+  for (const preyType of chosen) {
+    counts[preyType] = preyType === playerType ? 10 : 7;
+    for (const pred of (PREDATORS_OF[preyType] || [])) {
+      counts[pred] = (counts[pred] || 0) + 3;
+    }
+  }
+  return counts;
+}
 
 const ANIMAPEDIA = {
   rabbit: 'Pequeno e ágil, o coelho vive em tocas escavadas e está sempre alerta. Seu salto longo é a melhor defesa contra os predadores da floresta.',
@@ -1124,6 +1979,12 @@ const ANIMAPEDIA = {
   leao: 'O rei da savana. Forte e imponente, solta um rugido que paralisa as presas antes do bote certeiro sobre as zebras.',
   tigre: 'O maior dos felinos, listrado e furtivo. Espreita em silêncio e dá um bote feroz e fulminante sobre os macacos.',
   hiena: 'Caçadora de bando, de ombros altos e mandíbula potente. Corre em disparada e não larga a presa — nem a carapaça do tatu.',
+  sapo: 'Pequeno anfíbio de olhos saltados e pulo poderoso. Salta para longe num piscar de olhos quando a garça aparece à espreita.',
+  esquilo: 'Roedor ágil de cauda peluda, vive entre os galhos. Salta de árvore em árvore para despistar o gavião que paira no alto.',
+  ovelha: 'Mansa e lanuda, vive em rebanho e confia na manada. Quando o lobo aparece, dispara junto com as outras numa correria só.',
+  garca: 'Ave pernalta de bico afiado e voo paciente. Fica imóvel na beira da água esperando o momento certo de bicar um sapo distraído.',
+  gaviao: 'Ave de rapina de vista aguçada e voo rasante. Mergulha do céu com as garras prontas para fisgar esquilos no chão.',
+  lobo: 'Caçador de alcateia, resistente e implacável. Persegue a ovelha em disparadas coordenadas até separá-la do rebanho.',
 };
 
 class MenuScene extends Phaser.Scene {
@@ -1131,6 +1992,7 @@ class MenuScene extends Phaser.Scene {
 
   init(data) {
     if (data?.mode) this.mode = data.mode;
+    this.selectType = data?.selectType || null;
   }
 
   create() {
@@ -1158,6 +2020,12 @@ class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
     this.mode = this.mode || 'normal';
 
+    // saldo de moedas
+    this.coinText = this.add.text(VIEW_W - 18, 20, `🪙 ${getCoins()}`, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '26px',
+      color: '#ffd966', fontStyle: 'bold',
+    }).setOrigin(1, 0).setDepth(50);
+
     const types = Object.keys(ANIMAL_TYPES);
     this.cards = [];
     const cols = 6;
@@ -1172,7 +2040,8 @@ class MenuScene extends Phaser.Scene {
       const y = startY + row * (cardH + gap);
       this.cards.push(this.makeCard(x, y, cardW, cardH, type));
     });
-    this.selected = 0;
+    const presel = this.selectType ? types.indexOf(this.selectType) : -1;
+    this.selected = presel >= 0 ? presel : 0;
     this.refreshCards();
 
     this.modeBg = this.add.graphics();
@@ -1185,13 +2054,27 @@ class MenuScene extends Phaser.Scene {
     modeHit.on('pointerup', () => { this.toggleMode(); });
     this.refreshMode();
 
-    const pediaBtn = this.add.text(VIEW_W / 2, VIEW_H - 110, '📖 abrir Animapédia (i)', {
+    const shopBtn = this.add.text(VIEW_W / 2 - 230, VIEW_H - 110, '🏪 Loja (j)', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#ffffff',
+      backgroundColor: '#2d7a4aee', padding: { x: 14, y: 7 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    shopBtn.on('pointerup', () => this.openShop());
+
+    const pediaBtn = this.add.text(VIEW_W / 2, VIEW_H - 110, '📖 Animapédia (i)', {
       fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#ffffff',
       backgroundColor: '#3a5a8aee', padding: { x: 14, y: 7 },
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     pediaBtn.on('pointerup', () => this.openPedia());
 
-    this.add.text(VIEW_W / 2, VIEW_H - 16, 'setas/wasd navega  •  enter/espaço confirma  •  m troca modo  •  i = animapédia', {
+    const albumBtn = this.add.text(VIEW_W / 2 + 210, VIEW_H - 110, '📒 Álbum (l)', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#ffffff',
+      backgroundColor: '#7a5a3aee', padding: { x: 14, y: 7 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    albumBtn.on('pointerup', () => this.openAlbum());
+
+    this.flashMsg = null;
+
+    this.add.text(VIEW_W / 2, VIEW_H - 16, 'enter compra/usa o bicho  •  m troca modo  •  j = loja  •  i = animapédia  •  l = álbum', {
       fontFamily: 'system-ui, sans-serif', fontSize: '16px', color: '#9ab19a',
     }).setOrigin(0.5);
 
@@ -1217,6 +2100,7 @@ class MenuScene extends Phaser.Scene {
 
   makeCard(x, y, w, h, type) {
     const spec = ANIMAL_TYPES[type];
+    const locked = !isUnlocked(type);
     const shadow = this.add.graphics();
     shadow.fillStyle(0x000000, 0.33);
     shadow.fillRoundedRect(x + 3, y + 5, w, h, 10);
@@ -1225,7 +2109,7 @@ class MenuScene extends Phaser.Scene {
       bg.clear();
       bg.fillStyle(highlighted ? 0x2d4d36 : 0x1c2a22, 1);
       bg.fillRoundedRect(x, y, w, h, 10);
-      bg.lineStyle(2, highlighted ? 0xffd966 : 0x3a5142, 1);
+      bg.lineStyle(2, highlighted ? 0xffd966 : (locked ? 0x5a4a2a : 0x3a5142), 1);
       bg.strokeRoundedRect(x, y, w, h, 10);
     };
     draw(false);
@@ -1242,13 +2126,28 @@ class MenuScene extends Phaser.Scene {
       fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#ffd96690',
     }).setOrigin(0.5);
 
+    if (locked) {
+      // véu de bloqueio + preço
+      const veil = this.add.graphics();
+      veil.fillStyle(0x0a120d, 0.66);
+      veil.fillRoundedRect(x + 2, y + 2, w - 4, h - 4, 9);
+      this.add.text(x + w / 2, y + 42, '🔒', { fontSize: '34px' }).setOrigin(0.5);
+      const priceBg = this.add.graphics();
+      priceBg.fillStyle(0xffd966, 1);
+      priceBg.fillRoundedRect(x + w / 2 - 38, y + 80, 76, 24, 6);
+      this.add.text(x + w / 2, y + 92, `🪙 ${animalPrice(type)}`, {
+        fontFamily: 'system-ui, sans-serif', fontSize: '16px',
+        color: '#10201a', fontStyle: 'bold',
+      }).setOrigin(0.5);
+    }
+
     const hit = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0xffffff, 0.001)
       .setInteractive({ useHandCursor: true, pixelPerfect: false });
     const selectSelf = () => { this.selected = this.cards.findIndex((c) => c.type === type); this.refreshCards(); };
     hit.on('pointerover', selectSelf);
     hit.on('pointerdown', selectSelf);
     hit.on('pointerup', () => { selectSelf(); this.confirm(); });
-    return { type, draw };
+    return { type, draw, locked };
   }
 
   refreshCards() { this.cards.forEach((c, i) => c.draw(i === this.selected)); }
@@ -1262,6 +2161,8 @@ class MenuScene extends Phaser.Scene {
     else if (e.key === 'Enter' || e.key === ' ') { this.confirm(); return; }
     else if (e.key === 'm' || e.key === 'M') { this.toggleMode(); return; }
     else if (e.key === 'i' || e.key === 'I') { this.openPedia(); return; }
+    else if (e.key === 'l' || e.key === 'L') { this.openAlbum(); return; }
+    else if (e.key === 'j' || e.key === 'J') { this.openShop(); return; }
     else return;
     this.refreshCards();
   }
@@ -1270,10 +2171,37 @@ class MenuScene extends Phaser.Scene {
     this.scene.start('animapedia', { mode: this.mode });
   }
 
+  openAlbum() {
+    this.scene.start('album', { mode: this.mode });
+  }
+
+  openShop() {
+    this.scene.start('shop', { mode: this.mode });
+  }
+
+  flashMessage(msg, color = '#ffd966') {
+    if (this.flashMsg) this.flashMsg.destroy();
+    this.flashMsg = this.add.text(VIEW_W / 2, VIEW_H - 150, msg, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '20px', color,
+      backgroundColor: '#0a140dcc', padding: { x: 12, y: 7 }, align: 'center',
+    }).setOrigin(0.5).setDepth(200);
+    this.time.delayedCall(2000, () => { if (this.flashMsg) { this.flashMsg.destroy(); this.flashMsg = null; } });
+  }
+
   confirm() {
     if (this._confirmed) return;
-    this._confirmed = true;
     const chosen = this.cards[this.selected]?.type || 'fox';
+    if (!isUnlocked(chosen)) {
+      const res = buyAnimal(chosen);
+      if (res.ok) {
+        this.flashMessage(`✅ desbloqueou ${ANIMAL_TYPES[chosen].label}!  🪙 -${res.price}`, '#9ad06a');
+        this.scene.restart({ mode: this.mode, selectType: chosen });
+      } else {
+        this.flashMessage(`🔒 moedas insuficientes: precisa de 🪙 ${res.price}, você tem 🪙 ${res.coins}`, '#ff9a6a');
+      }
+      return;
+    }
+    this._confirmed = true;
     this.scene.start('forest', { playerType: chosen, mode: this.mode });
   }
 }
@@ -1399,6 +2327,660 @@ class AnimapediaScene extends Phaser.Scene {
   }
 }
 
+class AlbumScene extends Phaser.Scene {
+  constructor() { super('album'); }
+
+  init(data) {
+    this.mode = data?.mode || 'normal';
+    this.highlightId = data?.highlightId || null;
+    const idx = data?.highlightRarity ? RARITY_KEYS.indexOf(data.highlightRarity) : 0;
+    this.page = idx >= 0 ? idx : 0;
+  }
+
+  create() {
+    this.input.keyboard.removeAllListeners();
+    this.cameras.main.setBackgroundColor('#10201a');
+
+    const bg = this.add.graphics().setDepth(-100);
+    bg.fillGradientStyle(0x16321f, 0x143033, 0x0c1c15, 0x0e201a, 1);
+    bg.fillRect(0, 0, VIEW_W, VIEW_H);
+
+    this.add.text(VIEW_W / 2, 28, '📒 Álbum de Figurinhas', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '36px',
+      color: '#ffd966', fontStyle: 'bold',
+    }).setOrigin(0.5).setStroke('#0a140d', 6).setShadow(0, 4, '#000000', 8, false, true);
+
+    const album = loadAlbum();
+    const totalStickers = STICKER_TYPES.length * RARITY_KEYS.length;
+    const totalOwned = Object.keys(album).filter((id) => album[id] > 0).length;
+    this.add.text(VIEW_W / 2, 60, `cole figurinhas vencendo partidas  •  ${totalOwned}/${totalStickers} coladas`, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '17px', color: '#c8d6c6',
+    }).setOrigin(0.5);
+
+    this.pageObjs = [];
+    this.renderPage();
+
+    const studioBtn = this.add.text(VIEW_W - 18, 44, '🎨 Montar figurinhas (e)', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '17px', color: '#ffffff',
+      backgroundColor: '#6a3aa0ee', padding: { x: 12, y: 6 },
+    }).setOrigin(1, 0.5).setInteractive({ useHandCursor: true });
+    studioBtn.on('pointerup', () => this.openStudio());
+
+    const galleryBtn = this.add.text(VIEW_W - 18, 80, '📚 Figurinhas salvas (g)', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '17px', color: '#ffffff',
+      backgroundColor: '#2d7a4aee', padding: { x: 12, y: 6 },
+    }).setOrigin(1, 0.5).setInteractive({ useHandCursor: true });
+    galleryBtn.on('pointerup', () => this.openGallery());
+
+    this.add.text(VIEW_W / 2, VIEW_H - 24, '◀ ▶ troca página  •  e = montar  •  g = salvas  •  esc volta ao menu', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '16px', color: '#9ab19a',
+    }).setOrigin(0.5);
+
+    this.input.keyboard.on('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') { this.changePage(-1); }
+      else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { this.changePage(1); }
+      else if (e.key === 'Escape' || e.key === 'Backspace') { this.scene.start('menu', { mode: this.mode }); }
+      else if (e.key === 'e' || e.key === 'E') { this.openStudio(); }
+      else if (e.key === 'g' || e.key === 'G') { this.openGallery(); }
+      else if (e.key >= '1' && e.key <= String(RARITY_KEYS.length)) { this.goToPage(parseInt(e.key, 10) - 1); }
+    });
+  }
+
+  openStudio() {
+    this.scene.start('studio', { mode: this.mode });
+  }
+
+  openGallery() {
+    this.scene.start('gallery', { mode: this.mode });
+  }
+
+  changePage(dir) {
+    this.page = (this.page + dir + RARITY_KEYS.length) % RARITY_KEYS.length;
+    this.highlightId = null;
+    this.renderPage();
+  }
+
+  goToPage(idx) {
+    if (idx < 0 || idx >= RARITY_KEYS.length || idx === this.page) return;
+    this.page = idx;
+    this.highlightId = null;
+    this.renderPage();
+  }
+
+  renderPage() {
+    this.pageObjs.forEach((o) => o.destroy());
+    this.pageObjs = [];
+    const add = (o) => { this.pageObjs.push(o); return o; };
+
+    const album = loadAlbum();
+    const rarityKey = RARITY_KEYS[this.page];
+
+    // abas das raridades
+    const tabW = 200, tabGap = 10;
+    const tabsW = RARITY_KEYS.length * tabW + (RARITY_KEYS.length - 1) * tabGap;
+    const tabStartX = (VIEW_W - tabsW) / 2;
+    RARITY_KEYS.forEach((rk, i) => {
+      const r = RARITIES[rk];
+      const tx = tabStartX + i * (tabW + tabGap);
+      const ty = 86;
+      const active = i === this.page;
+      const owned = STICKER_TYPES.reduce((acc, t) => acc + (album[stickerId(t, rk)] ? 1 : 0), 0);
+      const total = STICKER_TYPES.length;
+      const g = add(this.add.graphics());
+      g.fillStyle(active ? r.color : 0x1c2a22, 1);
+      g.fillRoundedRect(tx, ty, tabW, 34, 8);
+      g.lineStyle(2, r.color, active ? 1 : 0.5);
+      g.strokeRoundedRect(tx, ty, tabW, 34, 8);
+      add(this.add.text(tx + tabW / 2, ty + 17, `${'★'.repeat(r.stars)} ${r.label}  ${owned}/${total}`, {
+        fontFamily: 'system-ui, sans-serif', fontSize: '15px',
+        color: active ? '#10201a' : '#cfe0cf', fontStyle: 'bold',
+      }).setOrigin(0.5));
+      const hit = add(this.add.rectangle(tx + tabW / 2, ty + 17, tabW, 34, 0xffffff, 0.001)
+        .setInteractive({ useHandCursor: true }));
+      hit.on('pointerup', () => this.goToPage(i));
+    });
+
+    // grade: todos os bichos nesta raridade (6 colunas x 3 linhas)
+    const cols = 6, cardW = 180, cardH = 200, gapX = 12, gapY = 16;
+    const gridW = cols * cardW + (cols - 1) * gapX;
+    const startX = (VIEW_W - gridW) / 2;
+    const startY = 144;
+    STICKER_TYPES.forEach((type, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const x = startX + col * (cardW + gapX);
+      const y = startY + row * (cardH + gapY);
+      const id = stickerId(type, rarityKey);
+      drawStickerCard(this, x, y, cardW, cardH, type, rarityKey, !!album[id], album[id] || 0)
+        .forEach(add);
+      if (id === this.highlightId) {
+        const hl = add(this.add.graphics().setDepth(50));
+        hl.lineStyle(4, 0xffd966, 1);
+        hl.strokeRoundedRect(x - 4, y - 4, cardW + 8, cardH + 8, 14);
+      }
+    });
+  }
+}
+
+class ShopScene extends Phaser.Scene {
+  constructor() { super('shop'); }
+
+  init(data) { this.mode = data?.mode || 'normal'; }
+
+  create() {
+    this.input.keyboard.removeAllListeners();
+    this.cameras.main.setBackgroundColor('#10201a');
+
+    const bg = this.add.graphics().setDepth(-100);
+    bg.fillGradientStyle(0x16321f, 0x143033, 0x0c1c15, 0x0e201a, 1);
+    bg.fillRect(0, 0, VIEW_W, VIEW_H);
+
+    this.add.text(VIEW_W / 2, 34, '🏪 Loja de Melhorias', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '38px',
+      color: '#ffd966', fontStyle: 'bold',
+    }).setOrigin(0.5).setStroke('#0a140d', 6).setShadow(0, 4, '#000000', 8, false, true);
+    this.add.text(VIEW_W / 2, 74, 'valem pra qualquer bicho  •  compre bichos novos na tela de seleção', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '18px', color: '#c8d6c6',
+    }).setOrigin(0.5);
+
+    this.objs = [];
+    this.render();
+
+    this.add.text(VIEW_W / 2, VIEW_H - 26, '1/2/3 ou clique compra  •  esc/backspace volta ao menu', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '16px', color: '#9ab19a',
+    }).setOrigin(0.5);
+
+    this.input.keyboard.on('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === 'Backspace') { this.scene.start('menu', { mode: this.mode }); return; }
+      const idx = parseInt(e.key, 10) - 1;
+      if (idx >= 0 && idx < UPGRADE_KEYS.length) this.tryBuy(UPGRADE_KEYS[idx]);
+    });
+  }
+
+  tryBuy(key) {
+    const res = buyUpgrade(key);
+    if (res.ok) this.flash(`✅ ${UPGRADES[key].label} nível ${res.level}!`, '#9ad06a');
+    else if (res.maxed) this.flash('já está no nível máximo', '#bfd3bf');
+    else this.flash(`🪙 moedas insuficientes (precisa de ${res.cost})`, '#ff9a6a');
+    this.render();
+  }
+
+  flash(msg, color = '#ffd966') {
+    if (this.flashMsg) this.flashMsg.destroy();
+    this.flashMsg = this.add.text(VIEW_W / 2, VIEW_H - 64, msg, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '19px', color,
+      backgroundColor: '#0a140dcc', padding: { x: 12, y: 6 },
+    }).setOrigin(0.5).setDepth(200);
+    this.time.delayedCall(1800, () => { if (this.flashMsg) { this.flashMsg.destroy(); this.flashMsg = null; } });
+  }
+
+  render() {
+    this.objs.forEach((o) => o.destroy());
+    this.objs = [];
+    const add = (o) => { this.objs.push(o); return o; };
+
+    add(this.add.text(VIEW_W - 18, 22, `🪙 ${getCoins()}`, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '26px',
+      color: '#ffd966', fontStyle: 'bold',
+    }).setOrigin(1, 0));
+
+    const rowW = 920, rowH = 150, gap = 20;
+    const x = (VIEW_W - rowW) / 2;
+    let y = 130;
+    UPGRADE_KEYS.forEach((key, i) => {
+      const u = UPGRADES[key];
+      const lvl = upgradeLevel(key);
+      const maxed = lvl >= u.max;
+
+      const card = add(this.add.graphics());
+      card.fillStyle(0x1c2a22, 1);
+      card.fillRoundedRect(x, y, rowW, rowH, 12);
+      card.lineStyle(2, 0x3a5142, 1);
+      card.strokeRoundedRect(x, y, rowW, rowH, 12);
+
+      add(this.add.text(x + 24, y + rowH / 2, u.icon, { fontSize: '54px' }).setOrigin(0.5));
+      add(this.add.text(x + 70, y + 28, `${i + 1}. ${u.label}`, {
+        fontFamily: 'system-ui, sans-serif', fontSize: '26px', color: '#ffffff', fontStyle: 'bold',
+      }).setOrigin(0, 0.5));
+      add(this.add.text(x + 70, y + 62, u.desc + ' por nível', {
+        fontFamily: 'system-ui, sans-serif', fontSize: '18px', color: '#a9bda9',
+      }).setOrigin(0, 0.5));
+
+      // pips de nível
+      const pips = add(this.add.graphics());
+      for (let p = 0; p < u.max; p++) {
+        const px = x + 78 + p * 30, py = y + 100;
+        pips.fillStyle(p < lvl ? 0x66cc88 : 0x33433a, 1);
+        pips.fillCircle(px, py, 9);
+        pips.lineStyle(2, 0x4a6a52, 1);
+        pips.strokeCircle(px, py, 9);
+      }
+      add(this.add.text(x + 78 + u.max * 30 + 8, y + 100, `nível ${lvl}/${u.max}`, {
+        fontFamily: 'system-ui, sans-serif', fontSize: '17px', color: '#cfe0cf',
+      }).setOrigin(0, 0.5));
+
+      // botão de compra
+      const bw = 180, bh = 64, bx = x + rowW - bw - 24, by = y + (rowH - bh) / 2;
+      const cost = maxed ? null : upgradeCost(key, lvl);
+      const afford = !maxed && getCoins() >= cost;
+      const btn = add(this.add.graphics());
+      btn.fillStyle(maxed ? 0x2a3a30 : (afford ? 0x2d7a4a : 0x5a3a3a), 1);
+      btn.fillRoundedRect(bx, by, bw, bh, 10);
+      btn.lineStyle(2, maxed ? 0x4a6a52 : (afford ? 0x9ad06a : 0xc06a5a), 1);
+      btn.strokeRoundedRect(bx, by, bw, bh, 10);
+      add(this.add.text(bx + bw / 2, by + bh / 2, maxed ? 'MÁX' : `comprar\n🪙 ${cost}`, {
+        fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#ffffff',
+        fontStyle: 'bold', align: 'center',
+      }).setOrigin(0.5));
+      if (!maxed) {
+        const hit = add(this.add.rectangle(bx + bw / 2, by + bh / 2, bw, bh, 0xffffff, 0.001)
+          .setInteractive({ useHandCursor: true }));
+        hit.on('pointerup', () => this.tryBuy(key));
+      }
+
+      y += rowH + gap;
+    });
+  }
+}
+
+class StudioScene extends Phaser.Scene {
+  constructor() { super('studio'); }
+
+  init(data) {
+    this.mode = data?.mode || 'normal';
+    const existing = data?.creationId ? getCreation(data.creationId) : null;
+    if (existing) {
+      this.creationId = existing.id;
+      this.type = existing.type;
+      this.initialComp = cloneComp(existing.comp);
+    } else {
+      this.creationId = null;
+      this.type = data?.type && ANIMAL_TYPES[data.type] ? data.type : STICKER_TYPES[0];
+      this.initialComp = null;
+    }
+  }
+
+  create() {
+    this.input.keyboard.removeAllListeners();
+    this.cameras.main.setBackgroundColor('#10201a');
+    const bg = this.add.graphics().setDepth(-100);
+    bg.fillGradientStyle(0x16321f, 0x143033, 0x0c1c15, 0x0e201a, 1);
+    bg.fillRect(0, 0, VIEW_W, VIEW_H);
+
+    this.canvasCX = 340; this.canvasCY = 372; this.half = 230;
+
+    this.add.text(this.canvasCX, 28, '🎨 Oficina de Figurinhas', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '28px',
+      color: '#ffd966', fontStyle: 'bold',
+    }).setOrigin(0.5).setStroke('#0a140d', 5);
+
+    // moldura do canvas
+    const frame = this.add.graphics().setDepth(0);
+    frame.fillStyle(0x18241c, 1);
+    frame.fillRoundedRect(this.canvasCX - this.half - 8, this.canvasCY - this.half - 8, (this.half + 8) * 2, (this.half + 8) * 2, 16);
+    frame.lineStyle(3, 0x4a6a52, 1);
+    frame.strokeRoundedRect(this.canvasCX - this.half - 8, this.canvasCY - this.half - 8, (this.half + 8) * 2, (this.half + 8) * 2, 16);
+
+    this.add.text(this.canvasCX, this.canvasCY + this.half + 24,
+      'arraste pra mover  •  Q/E gira  •  +/- tamanho  •  F espelha  •  Del apaga', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '15px', color: '#9ab19a',
+    }).setOrigin(0.5);
+
+    this.selOutline = this.add.graphics().setDepth(9000);
+    this.dirty = false;
+    this.comp = this.initialComp ? this.initialComp : defaultComposition();
+    this.selIndex = 0;
+
+    this.buildPanel();
+    this.rebuildParts();
+
+    // arrastar peças
+    this.input.on('drag', (pointer, obj, dragX, dragY) => {
+      const i = obj.partIndex;
+      if (i == null || !this.comp.parts[i]) return;
+      const nx = Phaser.Math.Clamp(dragX, this.canvasCX - this.half, this.canvasCX + this.half);
+      const ny = Phaser.Math.Clamp(dragY, this.canvasCY - this.half, this.canvasCY + this.half);
+      obj.setPosition(nx, ny);
+      this.comp.parts[i].x = nx - this.canvasCX;
+      this.comp.parts[i].y = ny - this.canvasCY;
+      this.selIndex = i; this.dirty = true;
+      this.drawSelection();
+    });
+
+    this.input.keyboard.on('keydown', (e) => {
+      const k = e.key;
+      if (k === 'Escape') { this.exit(); }
+      else if (k === 'q' || k === 'Q') this.rotateSel(-Math.PI / 12);
+      else if (k === 'e' || k === 'E') this.rotateSel(Math.PI / 12);
+      else if (k === '+' || k === '=') this.scaleSel(1.12);
+      else if (k === '-' || k === '_') this.scaleSel(1 / 1.12);
+      else if (k === 'f' || k === 'F') this.flipSel();
+      else if (k === 'Delete' || k === 'Backspace') this.deleteSel();
+      else if (k === 's' || k === 'S') this.save();
+    });
+  }
+
+  buildPanel() {
+    const px = 700;
+    // seletor de bicho
+    this.add.text(px, 64, 'bicho:', { fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#c8d6c6' }).setOrigin(0, 0.5);
+    this.txtButton(px + 64, 64, '◀', () => this.changeAnimal(-1), { w: 40 });
+    this.animalName = this.add.text(px + 200, 64, '', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '22px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.txtButton(px + 336, 64, '▶', () => this.changeAnimal(1), { w: 40 });
+    this.refreshAnimalName();
+
+    // paleta de enfeites
+    this.add.text(px, 108, 'enfeites (clique pra adicionar):', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '17px', color: '#9ad06a',
+    }).setOrigin(0, 0.5);
+    const cols = 4, cw = 128, ch = 58, gx = 6, gy = 6, sx = px, sy = 130;
+    DECO_KINDS.forEach((d, i) => {
+      const cx = sx + (i % cols) * (cw + gx);
+      const cy = sy + Math.floor(i / cols) * (ch + gy);
+      const r = this.add.rectangle(cx + cw / 2, cy + ch / 2, cw, ch, 0x1c2a22)
+        .setStrokeStyle(2, 0x3a5142).setInteractive({ useHandCursor: true });
+      this.add.text(cx + 12, cy + ch / 2, d.emoji, { fontSize: '26px' }).setOrigin(0, 0.5);
+      this.add.text(cx + 46, cy + ch / 2, d.label, {
+        fontFamily: 'system-ui, sans-serif', fontSize: '15px', color: '#dfeadf',
+      }).setOrigin(0, 0.5);
+      r.on('pointerover', () => r.setFillStyle(0x2d4d36));
+      r.on('pointerout', () => r.setFillStyle(0x1c2a22));
+      r.on('pointerup', () => this.addDeco(d.key));
+    });
+
+    // controles da peça selecionada
+    const ty = 130 + 3 * (ch + gy) + 16;
+    this.add.text(px, ty, 'peça selecionada:', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '17px', color: '#ffd966',
+    }).setOrigin(0, 0.5);
+    const ctrls = [
+      ['↺ girar', () => this.rotateSel(-Math.PI / 12)],
+      ['↻ girar', () => this.rotateSel(Math.PI / 12)],
+      ['➕ maior', () => this.scaleSel(1.12)],
+      ['➖ menor', () => this.scaleSel(1 / 1.12)],
+      ['⇋ espelhar', () => this.flipSel()],
+      ['⬆ frente', () => this.toFront()],
+      ['⬇ trás', () => this.toBack()],
+      ['🗑 apagar', () => this.deleteSel()],
+    ];
+    ctrls.forEach((c, i) => {
+      const bx = px + (i % 4) * 130;
+      const by = ty + 28 + Math.floor(i / 4) * 50;
+      this.txtButton(bx, by, c[0], c[1], { w: 120, origin: 0 });
+    });
+
+    // ações
+    const ay = ty + 28 + 2 * 50 + 24;
+    this.txtButton(px, ay, '💾 salvar (s)', () => this.save(), { w: 175, origin: 0, bg: '#2d7a4aee' });
+    this.txtButton(px + 185, ay, '📄 salvar como nova', () => this.saveAsNew(), { w: 235, origin: 0, bg: '#2d7a4aee' });
+    this.txtButton(px, ay + 50, '🧹 limpar', () => this.clearComp(), { w: 130, origin: 0, bg: '#7a5a3aee' });
+    this.txtButton(px + 140, ay + 50, '📚 salvas', () => this.exitTo('gallery'), { w: 140, origin: 0, bg: '#2d4d36ee' });
+    this.txtButton(px + 290, ay + 50, '⬅ voltar', () => this.exit(), { w: 130, origin: 0, bg: '#3a5a8aee' });
+
+    this.hint = this.add.text(px, ay + 104, 'feito! desenhe sua figurinha e salve.', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '16px', color: '#9ab19a', wordWrap: { width: 520 },
+    }).setOrigin(0, 0.5);
+  }
+
+  txtButton(x, y, label, cb, opts = {}) {
+    const t = this.add.text(x, y, label, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '18px', color: '#ffffff',
+      backgroundColor: opts.bg || '#2d4d36ee', padding: { x: 10, y: 6 }, align: 'center',
+      fixedWidth: opts.w || 0,
+    }).setOrigin(opts.origin != null ? opts.origin : 0.5, 0.5).setInteractive({ useHandCursor: true });
+    if (opts.w) t.setStyle({ align: 'center' });
+    t.on('pointerup', cb);
+    return t;
+  }
+
+  refreshAnimalName() {
+    if (this.animalName) this.animalName.setText(ANIMAL_TYPES[this.type].label);
+  }
+
+  rebuildParts() {
+    if (this.partObjs) this.partObjs.forEach((o) => o.destroy());
+    this.partObjs = [];
+    this.comp.parts.forEach((part, i) => {
+      const g = drawPartGraphics(this, part, this.type);
+      applyPartTransform(g, part, this.canvasCX, this.canvasCY, 1);
+      g.setDepth(10 + i);
+      g.setInteractive(new Phaser.Geom.Circle(0, 0, partHitRadius(part, this.type)), Phaser.Geom.Circle.Contains);
+      this.input.setDraggable(g);
+      g.partIndex = i;
+      g.on('pointerdown', () => { this.selIndex = i; this.drawSelection(); });
+      this.partObjs.push(g);
+    });
+    if (this.selIndex >= this.comp.parts.length) this.selIndex = this.comp.parts.length - 1;
+    this.drawSelection();
+  }
+
+  drawSelection() {
+    const g = this.selOutline; g.clear();
+    const part = this.comp.parts[this.selIndex];
+    if (!part) return;
+    const sx = this.canvasCX + (part.x || 0), sy = this.canvasCY + (part.y || 0);
+    const r = partHitRadius(part, this.type) * (part.scale || 1) + 6;
+    g.lineStyle(2.5, 0xffd966, 0.9);
+    g.strokeCircle(sx, sy, r);
+  }
+
+  addDeco(kind) {
+    this.comp.parts.push({ kind, x: 0, y: 0, scale: 1.5, rot: 0, flip: 1 });
+    this.selIndex = this.comp.parts.length - 1;
+    this.dirty = true;
+    this.rebuildParts();
+  }
+
+  rotateSel(d) { const p = this.comp.parts[this.selIndex]; if (!p) return; p.rot = (p.rot || 0) + d; this.dirty = true; this.rebuildParts(); }
+  scaleSel(f) { const p = this.comp.parts[this.selIndex]; if (!p) return; p.scale = Phaser.Math.Clamp((p.scale || 1) * f, 0.3, 4.5); this.dirty = true; this.rebuildParts(); }
+  flipSel() { const p = this.comp.parts[this.selIndex]; if (!p) return; p.flip = (p.flip || 1) * -1; this.dirty = true; this.rebuildParts(); }
+
+  toFront() {
+    const i = this.selIndex; if (i < 0 || i >= this.comp.parts.length) return;
+    const [p] = this.comp.parts.splice(i, 1); this.comp.parts.push(p);
+    this.selIndex = this.comp.parts.length - 1; this.dirty = true; this.rebuildParts();
+  }
+  toBack() {
+    const i = this.selIndex; if (i <= 0) return;
+    const [p] = this.comp.parts.splice(i, 1); this.comp.parts.unshift(p);
+    this.selIndex = 0; this.dirty = true; this.rebuildParts();
+  }
+  deleteSel() {
+    const p = this.comp.parts[this.selIndex];
+    if (!p) return;
+    if (p.kind === ANIMAL_PART) { this.flash('o bicho não pode ser apagado 🙂'); return; }
+    this.comp.parts.splice(this.selIndex, 1);
+    this.selIndex = Math.max(0, this.selIndex - 1);
+    this.dirty = true; this.rebuildParts();
+  }
+
+  clearComp() { this.comp = defaultComposition(); this.selIndex = 0; this.dirty = true; this.rebuildParts(); this.flash('limpo — só o bicho de novo'); }
+
+  // salva a criação atual: cria nova entrada se ainda não tem id, ou atualiza a existente
+  save() {
+    if (!this.creationId) this.creationId = newCreationId();
+    upsertCreation({ id: this.creationId, type: this.type, comp: cloneComp(this.comp) });
+    this.dirty = false;
+    this.flash('💾 figurinha salva!');
+  }
+
+  // guarda uma cópia independente (nova entrada na coleção)
+  saveAsNew() {
+    this.creationId = newCreationId();
+    upsertCreation({ id: this.creationId, type: this.type, comp: cloneComp(this.comp) });
+    this.dirty = false;
+    this.flash('📄 nova cópia guardada!', '#9ad06a');
+  }
+
+  // trocar de bicho começa uma figurinha nova em branco (salvando o trabalho atual)
+  changeAnimal(dir) {
+    if (this.dirty) this.save();
+    const idx = STICKER_TYPES.indexOf(this.type);
+    this.type = STICKER_TYPES[(idx + dir + STICKER_TYPES.length) % STICKER_TYPES.length];
+    this.creationId = null;
+    this.comp = defaultComposition();
+    this.selIndex = 0; this.dirty = false;
+    this.refreshAnimalName();
+    this.rebuildParts();
+  }
+
+  flash(msg, color = '#ffd966') {
+    if (this.flashMsg) this.flashMsg.destroy();
+    this.flashMsg = this.add.text(this.canvasCX, this.canvasCY - this.half - 22, msg, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '18px', color,
+      backgroundColor: '#0a140dcc', padding: { x: 10, y: 5 },
+    }).setOrigin(0.5).setDepth(200);
+    this.time.delayedCall(1600, () => { if (this.flashMsg) { this.flashMsg.destroy(); this.flashMsg = null; } });
+  }
+
+  exitTo(scene) {
+    if (this.dirty) this.save();
+    this.scene.start(scene, { mode: this.mode });
+  }
+  exit() { this.exitTo('album'); }
+}
+
+class GalleryScene extends Phaser.Scene {
+  constructor() { super('gallery'); }
+
+  init(data) { this.mode = data?.mode || 'normal'; this.page = data?.page || 0; }
+
+  create() {
+    this.input.keyboard.removeAllListeners();
+    this.cameras.main.setBackgroundColor('#10201a');
+    const bg = this.add.graphics().setDepth(-100);
+    bg.fillGradientStyle(0x16321f, 0x143033, 0x0c1c15, 0x0e201a, 1);
+    bg.fillRect(0, 0, VIEW_W, VIEW_H);
+
+    this.add.text(VIEW_W / 2, 30, '📚 Figurinhas Salvas', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '36px',
+      color: '#ffd966', fontStyle: 'bold',
+    }).setOrigin(0.5).setStroke('#0a140d', 6).setShadow(0, 4, '#000000', 8, false, true);
+
+    this.subtitle = this.add.text(VIEW_W / 2, 64, '', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '17px', color: '#c8d6c6',
+    }).setOrigin(0.5);
+
+    const newBtn = this.add.text(VIEW_W - 18, 60, '🎨 nova figurinha (e)', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '18px', color: '#ffffff',
+      backgroundColor: '#6a3aa0ee', padding: { x: 12, y: 6 },
+    }).setOrigin(1, 0.5).setInteractive({ useHandCursor: true });
+    newBtn.on('pointerup', () => this.scene.start('studio', { mode: this.mode }));
+
+    this.add.text(VIEW_W / 2, VIEW_H - 24, '◀ ▶ / setas trocam de página  •  clique pra editar  •  esc volta ao álbum', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '16px', color: '#9ab19a',
+    }).setOrigin(0.5);
+
+    this.pageObjs = [];
+    this.render();
+
+    this.input.keyboard.on('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') this.changePage(-1);
+      else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') this.changePage(1);
+      else if (e.key === 'Escape' || e.key === 'Backspace') this.scene.start('album', { mode: this.mode });
+      else if (e.key === 'e' || e.key === 'E') this.scene.start('studio', { mode: this.mode });
+    });
+  }
+
+  get perPage() { return 8; }
+
+  changePage(dir) {
+    const total = Math.max(1, Math.ceil(loadCreations().length / this.perPage));
+    this.page = (this.page + dir + total) % total;
+    this.render();
+  }
+
+  render() {
+    this.pageObjs.forEach((o) => o.destroy());
+    this.pageObjs = [];
+    const add = (o) => { this.pageObjs.push(o); return o; };
+
+    const creations = loadCreations();
+    const total = Math.max(1, Math.ceil(creations.length / this.perPage));
+    if (this.page >= total) this.page = total - 1;
+    this.subtitle.setText(creations.length
+      ? `${creations.length} figurinha(s) montada(s)  •  página ${this.page + 1}/${total}`
+      : 'você ainda não montou nenhuma figurinha');
+
+    if (!creations.length) {
+      add(this.add.text(VIEW_W / 2, VIEW_H / 2 - 20, 'monte sua primeira figurinha na oficina! 🎨', {
+        fontFamily: 'system-ui, sans-serif', fontSize: '22px', color: '#c8d6c6',
+      }).setOrigin(0.5));
+      const b = add(this.add.text(VIEW_W / 2, VIEW_H / 2 + 30, '🎨 abrir oficina', {
+        fontFamily: 'system-ui, sans-serif', fontSize: '22px', color: '#ffffff',
+        backgroundColor: '#6a3aa0ee', padding: { x: 16, y: 9 },
+      }).setOrigin(0.5).setInteractive({ useHandCursor: true }));
+      b.on('pointerup', () => this.scene.start('studio', { mode: this.mode }));
+      return;
+    }
+
+    const cols = 4, cardW = 270, cardH = 320, gapX = 16, gapY = 20;
+    const gridW = cols * cardW + (cols - 1) * gapX;
+    const startX = (VIEW_W - gridW) / 2;
+    const startY = 96;
+    const slice = creations.slice(this.page * this.perPage, this.page * this.perPage + this.perPage);
+    slice.forEach((entry, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const x = startX + col * (cardW + gapX);
+      const y = startY + row * (cardH + gapY);
+      this.drawGalleryCard(add, x, y, cardW, cardH, entry);
+    });
+
+    // controles de página
+    if (total > 1) {
+      const prev = add(this.add.text(startX, VIEW_H - 56, '◀', {
+        fontFamily: 'system-ui, sans-serif', fontSize: '26px', color: '#ffffff',
+        backgroundColor: '#2d4d36ee', padding: { x: 14, y: 4 },
+      }).setOrigin(0, 0.5).setInteractive({ useHandCursor: true }));
+      prev.on('pointerup', () => this.changePage(-1));
+      const next = add(this.add.text(startX + gridW, VIEW_H - 56, '▶', {
+        fontFamily: 'system-ui, sans-serif', fontSize: '26px', color: '#ffffff',
+        backgroundColor: '#2d4d36ee', padding: { x: 14, y: 4 },
+      }).setOrigin(1, 0.5).setInteractive({ useHandCursor: true }));
+      next.on('pointerup', () => this.changePage(1));
+    }
+  }
+
+  drawGalleryCard(add, x, y, w, h, entry) {
+    const type = entry.type;
+    const comp = entry.comp && Array.isArray(entry.comp.parts) ? entry.comp : defaultComposition();
+
+    const shadow = add(this.add.graphics());
+    shadow.fillStyle(0x000000, 0.33);
+    shadow.fillRoundedRect(x + 3, y + 5, w, h, 14);
+
+    const card = add(this.add.graphics());
+    card.fillStyle(0x223028, 1);
+    card.fillRoundedRect(x, y, w, h, 14);
+    card.lineStyle(3, 0x6a3aa0, 1);
+    card.strokeRoundedRect(x, y, w, h, 14);
+
+    // composição renderizada
+    const k = (w * 0.62) / DESIGN;
+    for (const o of renderStaticComposition(this, x + w / 2, y + h * 0.42, k, type, comp)) add(o);
+
+    add(this.add.text(x + w / 2, y + h - 56, ANIMAL_TYPES[type].label, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '22px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5));
+    const decoCount = comp.parts.length - 1;
+    add(this.add.text(x + w / 2, y + h - 30, `${decoCount} enfeite(s)  •  clique pra editar`, {
+      fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#bda0e0',
+    }).setOrigin(0.5));
+
+    // clicar edita
+    const hit = add(this.add.rectangle(x + w / 2, y + h / 2, w, h, 0xffffff, 0.001)
+      .setInteractive({ useHandCursor: true }));
+    hit.on('pointerup', () => this.scene.start('studio', { mode: this.mode, creationId: entry.id }));
+
+    // botão de apagar
+    const del = add(this.add.text(x + w - 14, y + 12, '🗑', {
+      fontSize: '22px', backgroundColor: '#0a140daa', padding: { x: 5, y: 3 },
+    }).setOrigin(1, 0).setInteractive({ useHandCursor: true }).setDepth(20));
+    del.on('pointerup', () => { deleteCreation(entry.id); this.render(); });
+  }
+}
+
 const NOCTURNAL = new Set(['owl', 'gato', 'cobra', 'rato', 'jaguar', 'leao', 'tigre', 'hiena']);
 
 const POWERUP_KINDS = [
@@ -1455,7 +3037,10 @@ class ForestScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player.container, true, 0.1, 0.1);
 
     this.animals = [this.player];
-    const counts = GAME_MODES[this.mode]?.counts || GAME_MODES.normal.counts;
+    const modeDef = GAME_MODES[this.mode] || GAME_MODES.normal;
+    const counts = modeDef.dynamic
+      ? buildDynamicCounts(this.playerType)
+      : (modeDef.counts || GAME_MODES.normal.counts);
     for (const [type, count] of Object.entries(counts)) {
       const adjusted = type === this.playerType ? count - 1 : count;
       for (let i = 0; i < adjusted; i++) this.spawnNpc(type);
@@ -1494,7 +3079,7 @@ class ForestScene extends Phaser.Scene {
       this.scene.start('menu', { mode: this.mode });
     });
     this.input.keyboard.on('keydown-G', () => this.usePassage());
-    this.input.keyboard.on('keydown-P', () => this.scene.start('menu', { mode: this.mode }));
+    this.input.keyboard.on('keydown-P', () => this.togglePause());
     this.input.keyboard.on('keydown-T', () => window.location.reload());
     this.input.keyboard.on('keydown-E', () => this.triggerAbility());
     this.input.keyboard.on('keydown-SPACE', () => this.triggerAbility());
@@ -1503,6 +3088,19 @@ class ForestScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-B', () => this.lurePredators());
     this.input.keyboard.on('keydown-N', () => this.callHelp());
     this.input.keyboard.on('keydown-F', () => this.placeForceField());
+    this.input.keyboard.on('keydown-J', () => {
+      const muted = SFX.toggleMute();
+      this.floatText(this.player.x, this.player.y - 30, muted ? '🔇 som off' : '🔊 som on', '#ffffff');
+      if (!muted) SFX.coin(0.6);
+    });
+
+    // melhorias compradas na loja
+    this.upgrades = upgradeEffects();
+    this.upgradeSpeedMult = this.upgrades.speedMult;
+    this.abilityCooldown = this.player.spec.cooldown * this.upgrades.cooldownMult;
+    if (this.upgrades.shieldMs > 0) {
+      this.player.invulnerableUntil = this.time.now + this.upgrades.shieldMs;
+    }
 
     this.abilityReadyAt = 0;
     this.score = 0;
@@ -1517,6 +3115,16 @@ class ForestScene extends Phaser.Scene {
     this.powerups = [];
     this.powerupG = this.add.graphics().setDepth(-250);
     for (let i = 0; i < 10; i++) this.spawnPowerup();
+
+    // moedas coletáveis espalhadas pelo mapa
+    this.coinsCollected = 0;
+    this.coinEntities = [];
+    this.coinsG = this.add.graphics().setDepth(-240);
+    for (let i = 0; i < 14; i++) this.spawnCoin();
+
+    // MOEDA GIGA: vale 10.000, escondidíssima e sempre no mesmo cantinho do mapa
+    this.gigaCoin = { x: 3050, y: 2250, r: 113, value: 10000, collected: false, phase: 0 };
+    this.gigaCoinG = this.add.graphics().setDepth(-235);
 
     // mecânica: rastro de terra ao cavar (tatu)
     this.digMarks = [];
@@ -1546,6 +3154,27 @@ class ForestScene extends Phaser.Scene {
     this.fx = this.add.graphics().setDepth(99999);
     this.flashes = [];
 
+    // juice: partículas (poeira, pelo/penas, faíscas) desenhadas num único graphics
+    this.particles = [];
+    this.particleG = this.add.graphics().setDepth(99997);
+    this.lastStepAt = 0;
+
+    // caos animal: eventos aleatórios
+    this.eventOverlay = this.add.graphics().setScrollFactor(0).setDepth(97000);
+    this.eventColor = 0xffffff;
+    this.eventActiveUntil = 0;
+    this.nextEventAt = this.gameStartTime + 12000 + Math.random() * 8000;
+
+    // combo de caça (predador)
+    this.combo = 0;
+    this.lastEatAt = 0;
+
+    // trilha sonora ambiente (pássaros de dia, grilos de noite)
+    this.nextAmbientAt = this.gameStartTime + 2000;
+
+    // som: garante o AudioContext (o clique/tecla que iniciou a partida já é gesto válido)
+    SFX.ensure();
+
     this.forceFields = [];
     this.forceFieldG = this.add.graphics().setDepth(99998);
     this.forceFieldMax = 2;
@@ -1574,6 +3203,62 @@ class ForestScene extends Phaser.Scene {
     this.passageMapHit.on('pointerdown', (p) => this.handleMapClick(p));
     this.passageMapHit.on('pointermove', (p) => { this.passageCursor.x = p.x; this.passageCursor.y = p.y; });
     this.passageMapHit.on('pointerout', () => { this.passageCursor.x = -1; this.passageCursor.y = -1; });
+
+    // === jogabilidade: minimapa fixo no canto ===
+    this.minimapRect = { w: 220, h: 165, pad: 12 };
+    this.minimapRect.x = VIEW_W - this.minimapRect.w - this.minimapRect.pad;
+    this.minimapRect.y = VIEW_H - this.minimapRect.h - this.minimapRect.pad;
+    this.minimapG = this.add.graphics().setScrollFactor(0).setDepth(100006);
+
+    // === jogabilidade: setas de borda apontando perigo/alvo fora da tela ===
+    this.edgeG = this.add.graphics().setScrollFactor(0).setDepth(100007);
+
+    // zonas da tela que NÃO movem o jogador ao clicar (UI por cima do mundo)
+    this.noMoveZones = [this.minimapRect];
+
+    // === conforto: pausa de verdade ===
+    this.paused = false;
+    this.pauseOverlay = this.add.graphics().setScrollFactor(0).setDepth(100020).setVisible(false);
+    this.pauseOverlay.fillStyle(0x000000, 0.55);
+    this.pauseOverlay.fillRect(0, 0, VIEW_W, VIEW_H);
+    this.pauseText = this.add.text(VIEW_W / 2, VIEW_H / 2, '⏸  PAUSA\n\np retoma  •  esc menu', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '40px', fontStyle: 'bold',
+      color: '#ffffff', align: 'center', stroke: '#0a140d', strokeThickness: 6,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(100021).setVisible(false);
+
+    // === conforto: mover clicando/arrastando (mouse e toque) ===
+    this.moveTarget = null;
+    this.pointerHeld = false;
+    const inNoMove = (px, py) => this.noMoveZones.some((z) => px >= z.x && px <= z.x + z.w && py >= z.y && py <= z.y + z.h);
+    const setTargetFromPointer = (p) => {
+      if (this.passageMenuOpen || this.paused || this.gameOver) return;
+      if (inNoMove(p.x, p.y)) return;
+      this.moveTarget = { x: p.worldX, y: p.worldY };
+    };
+    this.input.on('pointerdown', (p) => {
+      if (this.passageMenuOpen || this.paused || this.gameOver) return;
+      if (inNoMove(p.x, p.y)) return;
+      this.pointerHeld = true;
+      setTargetFromPointer(p);
+    });
+    this.input.on('pointermove', (p) => { if (this.pointerHeld) setTargetFromPointer(p); });
+    this.input.on('pointerup', () => { this.pointerHeld = false; });
+
+    // === conforto: botões de toque (só em telas de toque, pra não poluir o desktop) ===
+    if (this.sys.game.device.input.touch) {
+      const touchBtn = (x, y, label, cb) => {
+        const b = this.add.text(x, y, label, {
+          fontFamily: 'system-ui, sans-serif', fontSize: '30px',
+          backgroundColor: '#0a140daa', padding: { x: 12, y: 8 },
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(100008).setAlpha(0.85)
+          .setInteractive({ useHandCursor: true });
+        b.on('pointerup', () => cb());
+        this.noMoveZones.push({ x: b.x - b.displayWidth / 2, y: b.y - b.displayHeight / 2, w: b.displayWidth, h: b.displayHeight });
+        return b;
+      };
+      touchBtn(VIEW_W - 70, VIEW_H - 280, '⏸', () => this.togglePause());
+      touchBtn(VIEW_W - 70, VIEW_H - 210, '🐾', () => this.triggerAbility());
+    }
 
     this.updateHud(0);
   }
@@ -1633,27 +3318,38 @@ class ForestScene extends Phaser.Scene {
     const now = this.time.now;
     if (now < this.abilityReadyAt) return;
     const spec = this.player.spec;
-    this.abilityReadyAt = now + spec.cooldown;
+    this.abilityCooldown = spec.cooldown * (this.upgrades?.cooldownMult ?? 1);
+    this.abilityReadyAt = now + this.abilityCooldown;
 
+    const px = this.player.x, py = this.player.y;
     if (spec.ability === 'dash') {
       this.player.speedMult = 2.6; this.player.speedMultUntil = now + 500;
-      this.flashRing(this.player.x, this.player.y, 40, 0xffd966);
+      SFX.dash();
+      this.spawnParticles(px, py, { count: 12, color: [0x8a7450, 0x6b5a3a], speed: 130, dir: this.player.facing > 0 ? Math.PI : 0, spread: 1.0, life: 420, size: 4, gravity: 120 });
     } else if (spec.ability === 'jump') {
       const dx = this.player.facing, dy = 0;
       this.player.setPosition(this.player.x + dx * 180, this.player.y + dy);
       this.player.invulnerableUntil = now + 200;
-      this.flashRing(this.player.x, this.player.y, 50, 0xb3e5ff);
+      SFX.jump();
+      this.spawnParticles(px, py, { count: 8, color: 0xb3e5ff, speed: 90, life: 380, size: 3 });
     } else if (spec.ability === 'sprint') {
       this.player.speedMult = 1.9; this.player.speedMultUntil = now + 2500;
+      SFX.whoosh();
     } else if (spec.ability === 'charge') {
       this.player.speedMult = 2.4; this.player.speedMultUntil = now + 900;
       this.player.contactEats = true; this.player.contactEatsUntil = now + 900;
-      this.flashRing(this.player.x, this.player.y, 44, 0xff8866);
+      SFX.charge();
+      this.shake(0.004, 200);
+      this.spawnParticles(px, py, { count: 14, color: [0xff8866, 0xffaa55, 0x8a7450], speed: 150, dir: this.player.facing > 0 ? Math.PI : 0, spread: 1.2, life: 420, size: 4, gravity: 100 });
     } else if (spec.ability === 'flight') {
       this.player.speedMult = 1.6; this.player.speedMultUntil = now + 3000;
       this.player.invulnerableUntil = now + 3000;
+      SFX.whoosh();
+      this.spawnParticles(px, py, { count: 10, color: [0xffffff, spec.body], speed: 70, life: 600, size: 4, gravity: -40 });
     } else if (spec.ability === 'roar') {
-      this.flashRing(this.player.x, this.player.y, 230, 0xffe0a0);
+      SFX.roar();
+      this.shake(0.012, 450);
+      this.spawnParticles(px, py, { count: 26, color: [0xffe0a0, 0xffc266, 0xffffff], speed: 280, life: 500, size: 5 });
       for (const a of this.animals) {
         if (a === this.player || a.dead) continue;
         const d = Math.hypot(a.x - this.player.x, a.y - this.player.y);
@@ -1664,7 +3360,8 @@ class ForestScene extends Phaser.Scene {
       this.player.invisibleUntil = now + 2000;
       this.player.digUntil = now + 2000;
       this.player.lastDigMark = 0;
-      this.flashRing(this.player.x, this.player.y, 50, 0x8a6a3a);
+      SFX.dig();
+      this.spawnParticles(px, py, { count: 16, color: [0x8a6a3a, 0x6b4a28, 0x4a3418], speed: 110, life: 520, size: 5, gravity: 260 });
     }
   }
 
@@ -1914,24 +3611,27 @@ class ForestScene extends Phaser.Scene {
     if (npc.dead || now < npc.stunnedUntil) return;
     npc.npcAbilityReadyAt = now + npc.spec.cooldown * 1.2;
     const ab = npc.spec.ability;
+    const vol = this.spatialVol(npc.x, npc.y);
     if (ab === 'dash') {
       npc.speedMult = 2.6; npc.speedMultUntil = now + 500;
-      this.flashRing(npc.x, npc.y, 40, 0xffd966);
+      if (vol > 0.05) SFX.dash(vol);
     } else if (ab === 'jump') {
       npc.setPosition(npc.x + (npc.facing || 1) * 180, npc.y);
       npc.invulnerableUntil = now + 200;
-      this.flashRing(npc.x, npc.y, 50, 0xb3e5ff);
+      if (vol > 0.05) SFX.jump(vol);
     } else if (ab === 'sprint') {
       npc.speedMult = 1.9; npc.speedMultUntil = now + 2500;
     } else if (ab === 'charge') {
       npc.speedMult = 2.4; npc.speedMultUntil = now + 900;
       npc.contactEats = true; npc.contactEatsUntil = now + 900;
-      this.flashRing(npc.x, npc.y, 44, 0xff8866);
+      if (vol > 0.05) SFX.charge(vol);
     } else if (ab === 'flight') {
       npc.speedMult = 1.6; npc.speedMultUntil = now + 3000;
       npc.invulnerableUntil = now + 3000;
     } else if (ab === 'roar') {
-      this.flashRing(npc.x, npc.y, 230, 0xffe0a0);
+      if (vol > 0.05) SFX.roar(vol * 0.85);
+      if (vol > 0.4) this.shake(0.006 * vol, 300);
+      this.spawnParticles(npc.x, npc.y, { count: 18, color: [0xffe0a0, 0xffc266], speed: 240, life: 450, size: 4 });
       for (const a of this.animals) {
         if (a === npc || a.dead) continue;
         const d = Math.hypot(a.x - npc.x, a.y - npc.y);
@@ -1942,7 +3642,7 @@ class ForestScene extends Phaser.Scene {
       npc.invisibleUntil = now + 2000;
       npc.digUntil = now + 2000;
       npc.lastDigMark = 0;
-      this.flashRing(npc.x, npc.y, 40, 0x8a6a3a);
+      if (vol > 0.05) SFX.dig(vol);
     }
   }
 
@@ -1958,7 +3658,11 @@ class ForestScene extends Phaser.Scene {
       a.alertedUntil = 0;
       a.helpTargetAnimal = npc;
       a.helpTargetType = npc.type;
+      a.showEmote('💪', 1400);
     }
+    npc.showEmote('🆘', 1600);
+    const hv = this.spatialVol(npc.x, npc.y);
+    if (hv > 0.05) SFX.alert(hv);
     this.flashRing(npc.x, npc.y, 140, 0x66ff99);
     this.showNpcShout(`${npc.spec.label}: ajudaaaa!`, '#2d7a4aee');
     this.helpCalls.push({ animal: npc, until: now + 5000, duration: 5000 });
@@ -1973,7 +3677,11 @@ class ForestScene extends Phaser.Scene {
       a.alertedUntil = now + 4000;
       a.alertSourceX = threat.x;
       a.alertSourceY = threat.y;
+      a.showEmote('😱', 1400);
     }
+    npc.showEmote('❗', 1400);
+    const av = this.spatialVol(npc.x, npc.y);
+    if (av > 0.05) SFX.alert(av);
     this.flashRing(npc.x, npc.y, 180, 0xffffff);
     this.showNpcShout(`${npc.spec.label}: fujaaaaaaaaaaaaaaaaaaaaaaaaaaaaaam!`, '#b33a3aee');
   }
@@ -2007,10 +3715,16 @@ class ForestScene extends Phaser.Scene {
         const nx = dx / (d || 1), ny = dy / (d || 1);
         pred.setPosition(pred.x + nx * push, pred.y + ny * push);
         pred.stunnedUntil = Math.max(pred.stunnedUntil, now + stun);
+        pred.showEmote('😵', 1000);
         hit = true;
       }
     }
-    if (hit) this.flashRing(attacker.x, attacker.y, range, 0xffc266);
+    if (hit) {
+      const vol = attacker.isPlayer ? 1 : this.spatialVol(attacker.x, attacker.y);
+      if (vol > 0.05) SFX.bite(vol);
+      if (attacker.isPlayer) this.shake(0.005, 200);
+      this.spawnParticles(attacker.x, attacker.y, { count: 10, color: [0xffc266, 0xffffff], speed: 160, dir: (attacker.facing || 1) > 0 ? 0 : Math.PI, spread: 1.4, life: 360, size: 4 });
+    }
   }
 
   alertKin() {
@@ -2047,7 +3761,7 @@ class ForestScene extends Phaser.Scene {
   }
 
   flashRing(x, y, maxR, color) {
-    this.flashes.push({ x, y, r: 10, maxR, color, alpha: 1 });
+    // anéis de brilho removidos (eram só cosméticos) — função mantida como no-op
   }
 
   placeForceField() {
@@ -2087,7 +3801,9 @@ class ForestScene extends Phaser.Scene {
     if (now < (this.giantReadyAt || 0)) return;
     this.player.giantUntil = now + duration;
     this.giantReadyAt = now + cooldown;
-    this.flashRing(this.player.x, this.player.y, 140, 0xffdd66);
+    SFX.roar();
+    this.shake(0.014, 500);
+    this.spawnParticles(this.player.x, this.player.y, { count: 28, color: [0xffdd66, 0xffc266, 0xffffff], speed: 260, life: 600, size: 6, gravity: 60 });
     const preyList = this.animals.filter((a) =>
       !a.isPlayer && !a.dead && this.player.spec.eats.includes(a.type),
     );
@@ -2379,7 +4095,17 @@ class ForestScene extends Phaser.Scene {
 
   eat(eater, victim) {
     victim.dead = true;
-    this.flashRing(victim.x, victim.y, 30, 0xff6060);
+    // som + explosão de pelo/penas na cor da vítima
+    const vol = (eater.isPlayer || victim.isPlayer) ? 1 : this.spatialVol(victim.x, victim.y);
+    if (victim.isPlayer) {
+      SFX.hurt();
+      this.shake(0.014, 500);
+    } else if (vol > 0.05) {
+      SFX.eat(vol);
+      if (eater.isPlayer) this.shake(0.006, 220);
+    }
+    this.spawnParticles(victim.x, victim.y, { count: 16, color: [victim.spec.body, victim.spec.belly, 0xff6060], speed: 170, life: 520, size: 4, gravity: 90 });
+    if (eater && !eater.dead && eater !== this.player) eater.showEmote('😋', 700);
     victim.container.destroy();
     this.animals = this.animals.filter((a) => a !== victim);
     this.killedByType[victim.type] = (this.killedByType[victim.type] || 0) + 1;
@@ -2388,6 +4114,17 @@ class ForestScene extends Phaser.Scene {
     }
     if (eater === this.player) {
       this.score += 1;
+      // combo: presas caçadas em sequência (janela de 4s) sobem o tom e dão moedas
+      const tnow = this.time.now;
+      this.combo = (tnow - (this.lastEatAt || 0) < 4000) ? (this.combo || 0) + 1 : 1;
+      this.lastEatAt = tnow;
+      this.player.showEmote(this.combo >= 3 ? '🔥' : '😋', 800);
+      if (this.combo >= 2) {
+        SFX.combo(this.combo);
+        const cbonus = this.combo;
+        this.coinsCollected += cbonus;
+        this.floatText(this.player.x, this.player.y - 46, `combo x${this.combo}!  +${cbonus}🪙`, '#ff9a3a');
+      }
       if (this.preyTarget && this.score >= this.preyTarget && !this.gameOver) {
         this.showResult(true, `dominou o time — ${this.score}/${this.preyTotal} caçados!`);
       }
@@ -2403,14 +4140,15 @@ class ForestScene extends Phaser.Scene {
       if (this.score >= this.preyTarget) {
         this.showResult(true, `caçou o suficiente — ${this.score}/${this.preyTotal}!`);
       } else {
-        this.showResult(false, `tempo esgotou — só ${this.score}/${this.preyTarget} presas`);
+        const preyLabel = this.player.spec.eats.map((t) => ANIMAL_TYPES[t].label).join('/');
+        this.showResult(false, `tempo esgotou — você caçou só ${this.score}/${this.preyTarget}. Os ${preyLabel} (fugitivos) venceram!`);
       }
     } else if (this.preyWinTarget) {
       const killed = this.killedByType[this.playerType] || 0;
       if (killed >= this.preyWinTarget) {
-        this.showResult(true, `escapou! o predador caçou ${killed}/${this.preyTeamInitial} do seu time e você sobreviveu`);
+        this.showResult(false, `o predador caçou ${killed}/${this.preyTeamInitial} do seu time — o predador venceu`);
       } else {
-        this.showResult(false, `o predador só caçou ${killed}/${this.preyWinTarget} — ele precisava vencer pra você vencer`);
+        this.showResult(true, `o predador perdeu! caçou só ${killed}/${this.preyWinTarget} do seu time. Os fugitivos venceram!`);
       }
     } else {
       this.showResult(true, 'tempo acabou — você sobreviveu!');
@@ -2420,6 +4158,7 @@ class ForestScene extends Phaser.Scene {
   showResult(won, message) {
     if (this.gameOver) return;
     this.gameOver = true;
+    if (won) { SFX.win(); this.shake(0.004, 300); } else { SFX.lose(); }
     const title = won ? 'VITÓRIA' : 'DERROTA';
     const bg = won ? '#2d7a4aee' : '#9a2a2aee';
     this.add.text(VIEW_W / 2, VIEW_H / 2 - 60, title, {
@@ -2430,12 +4169,30 @@ class ForestScene extends Phaser.Scene {
       fontFamily: 'system-ui, sans-serif', fontSize: '22px',
       color: '#ffffff', backgroundColor: '#00000099', padding: { x: 10, y: 6 },
     }).setOrigin(0.5).setScrollFactor(0).setDepth(100001);
-    this.add.text(VIEW_W / 2, VIEW_H / 2 + 22,
+    this.add.text(VIEW_W / 2, VIEW_H / 2 + 18,
       `presas comidas: ${this.score}   •   ✨ itens mágicos: ${this.itemsCollected || 0}${this.bonus ? `  (+${this.bonus} bônus)` : ''}`,
       { fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#dddddd' }
     ).setOrigin(0.5).setScrollFactor(0).setDepth(100001);
 
-    this.resultModeLabel = this.add.text(VIEW_W / 2, VIEW_H / 2 + 58, '', {
+    // figurinha sorteada primeiro (repetida vira moedas)
+    let reward = null;
+    let dupBonus = 0;
+    if (won) {
+      reward = awardSticker();
+      if (!reward.isNew) dupBonus = 25; // figurinha repetida é convertida em moedas
+    }
+
+    // recompensa em moedas pela partida
+    const collected = this.coinsCollected || 0;
+    const prize = (won ? 40 : 10) + this.score * 5 + (this.itemsCollected || 0) * 6 + (this.bonus || 0);
+    const coinsEarned = prize + collected + dupBonus;
+    const totalCoins = addCoins(coinsEarned);
+    this.add.text(VIEW_W / 2, VIEW_H / 2 + 42,
+      `🪙 +${coinsEarned} moedas (${collected} coletadas + ${prize} de prêmio${dupBonus ? ` + ${dupBonus} repetida` : ''})   •   total: ${totalCoins}`,
+      { fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#ffd966', fontStyle: 'bold' }
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(100001);
+
+    this.resultModeLabel = this.add.text(VIEW_W / 2, VIEW_H / 2 + 76, '', {
       fontFamily: 'system-ui, sans-serif', fontSize: '21px',
       color: '#ffffff', backgroundColor: '#2d4d36ee', padding: { x: 10, y: 6 },
     }).setOrigin(0.5).setScrollFactor(0).setDepth(100001);
@@ -2445,12 +4202,26 @@ class ForestScene extends Phaser.Scene {
     };
     refreshModeLine();
 
-    this.add.text(VIEW_W / 2, VIEW_H / 2 + 92,
-      'q = jogar de novo   •   p = escolher outro bicho',
+    // figurinha ganha pro álbum (sorteada acima)
+    if (won && reward) {
+      const cardX = VIEW_W / 2 + 300, cardY = VIEW_H / 2 - 86, cardW = 150, cardH = 172;
+      this.add.text(cardX + cardW / 2, cardY - 22,
+        reward.isNew ? '✨ figurinha NOVA!' : `✨ repetida (x${reward.count}) — +${dupBonus} 🪙`,
+        { fontFamily: 'system-ui, sans-serif', fontSize: '17px',
+          color: reward.isNew ? '#ffd966' : '#bfd3bf', fontStyle: 'bold' }
+      ).setOrigin(0.5).setScrollFactor(0).setDepth(100002);
+      for (const o of drawStickerCard(this, cardX, cardY, cardW, cardH, reward.type, reward.rarity, true, reward.count)) {
+        o.setScrollFactor(0).setDepth(100001);
+      }
+    }
+
+    this.add.text(VIEW_W / 2, VIEW_H / 2 + 108,
+      'q = jogar de novo   •   p = menu/loja' + (won ? '   •   l = ver álbum' : ''),
       { fontFamily: 'system-ui, sans-serif', fontSize: '18px', color: '#bfd3bf' }
     ).setOrigin(0.5).setScrollFactor(0).setDepth(100001);
 
     this.input.keyboard.removeAllListeners();
+    if (won) this.input.keyboard.on('keydown-L', () => this.scene.start('album', { mode: this.mode, highlightId: reward.id, highlightRarity: reward.rarity }));
     this.input.keyboard.on('keydown-M', () => {
       const keys = Object.keys(GAME_MODES);
       const idx = keys.indexOf(this.mode);
@@ -2471,7 +4242,7 @@ class ForestScene extends Phaser.Scene {
     const w = 160, h = 8;
     const x = VIEW_W - w - 12, y = 12;
     const remaining = Math.max(0, this.abilityReadyAt - now);
-    const ratio = 1 - remaining / this.player.spec.cooldown;
+    const ratio = 1 - remaining / (this.abilityCooldown || this.player.spec.cooldown);
     g.fillStyle(0x000000, 0.6);
     g.fillRoundedRect(x, y, w, h + 18, 4);
     g.fillStyle(0x333a33, 1);
@@ -2489,18 +4260,28 @@ class ForestScene extends Phaser.Scene {
 
   drawGround() {
     const g = this.add.graphics();
-    g.fillGradientStyle(0x357d49, 0x357d49, 0x1f4d2c, 0x1f4d2c, 1);
+    g.fillGradientStyle(0x357d49, 0x3a8a50, 0x1f4d2c, 0x163a20, 1);
     g.fillRect(0, 0, WORLD_W, WORLD_H);
-    for (let i = 0; i < 420; i++) {
+    // manchas de tom (mais densas pra dar textura ao gramado)
+    for (let i = 0; i < 900; i++) {
       const x = Math.random() * WORLD_W;
       const y = Math.random() * WORLD_H;
-      const r = 40 + Math.random() * 90;
-      g.fillStyle(Math.random() < 0.5 ? COLORS.grassDark : COLORS.clearing, 0.35);
+      const r = 30 + Math.random() * 100;
+      g.fillStyle(Math.random() < 0.5 ? COLORS.grassDark : COLORS.clearing, 0.28);
       g.fillCircle(x, y, r);
     }
+    // tufos de grama (riscos finos) pra dar relevo
+    for (let i = 0; i < 1400; i++) {
+      const x = Math.random() * WORLD_W;
+      const y = Math.random() * WORLD_H;
+      if (isInWater(x, y)) continue;
+      g.fillStyle(Math.random() < 0.5 ? 0x2f6a3a : 0x46955a, 0.5);
+      const hh = 3 + Math.random() * 4;
+      g.fillTriangle(x - 2, y, x + 2, y, x + (Math.random() * 2 - 1), y - hh);
+    }
     // florzinhas decorativas (puramente visual)
-    const flowerColors = [0xffe14d, 0xff8fb0, 0xf4f4f4, 0xc9a0ff];
-    for (let i = 0; i < 240; i++) {
+    const flowerColors = [0xffe14d, 0xff8fb0, 0xf4f4f4, 0xc9a0ff, 0xffb14d, 0x8fd0ff];
+    for (let i = 0; i < 560; i++) {
       const x = Math.random() * WORLD_W;
       const y = Math.random() * WORLD_H;
       if (isInWater(x, y)) continue;
@@ -2539,19 +4320,39 @@ class ForestScene extends Phaser.Scene {
     for (const p of points) g.lineTo(p.x, p.y - width + 10);
     for (let i = points.length - 1; i >= 0; i--) g.lineTo(points[i].x, points[i].y + width - 10);
     g.closePath(); g.fillPath();
-    // reflexos/brilho na água (puramente visual)
-    g.fillStyle(0x9fd0ee, 0.3);
-    for (let i = 2; i < points.length - 2; i += 2) {
+    // faixa clara mais interna (profundidade da água)
+    g.fillStyle(0x4f93c8, 0.5);
+    g.beginPath();
+    g.moveTo(points[0].x, points[0].y - width + 24);
+    for (const p of points) g.lineTo(p.x, p.y - width + 24);
+    for (let i = points.length - 1; i >= 0; i--) g.lineTo(points[i].x, points[i].y + width - 24);
+    g.closePath(); g.fillPath();
+    // reflexos/brilho na água (puramente visual, mais densos)
+    g.fillStyle(0x9fd0ee, 0.28);
+    for (let i = 1; i < points.length - 1; i++) {
       const p = points[i];
       g.fillEllipse(p.x, p.y - 14, 38, 7);
       g.fillEllipse(p.x + 34, p.y + 20, 26, 5);
+      g.fillEllipse(p.x - 28, p.y + 2, 20, 4);
+    }
+    // vitórias-régias (lily pads)
+    for (let i = 1; i < points.length - 1; i += 2) {
+      const p = points[i];
+      const lx = p.x + (Math.random() * 60 - 30);
+      const ly = p.y + (Math.random() * 80 - 40);
+      g.fillStyle(0x2f7d3e, 0.9);
+      g.fillCircle(lx, ly, 9);
+      g.fillStyle(0x1f4d2c, 1);
+      g.fillTriangle(lx, ly, lx + 9, ly - 2, lx + 7, ly + 5);
+      g.fillStyle(0xff8fb0, 0.9);
+      if (Math.random() < 0.4) g.fillCircle(lx + 2, ly - 2, 3);
     }
     g.setDepth(-500);
   }
 
   drawDecor() {
     const g = this.add.graphics();
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 540; i++) {
       const x = Math.random() * WORLD_W;
       const y = Math.random() * WORLD_H;
       g.fillStyle(COLORS.bush, 0.9);
@@ -2559,12 +4360,25 @@ class ForestScene extends Phaser.Scene {
       g.fillCircle(x, y, r);
       g.fillCircle(x + r * 0.6, y - r * 0.3, r * 0.7);
       g.fillCircle(x - r * 0.5, y - r * 0.2, r * 0.6);
+      // brilho de topo nos arbustos
+      g.fillStyle(0x4aa05a, 0.5);
+      g.fillCircle(x - r * 0.2, y - r * 0.4, r * 0.4);
+      g.fillStyle(COLORS.bush, 0.9);
     }
-    for (let i = 0; i < 80; i++) {
+    // pedrinhas e cogumelinhos espalhados
+    for (let i = 0; i < 220; i++) {
       const x = Math.random() * WORLD_W;
       const y = Math.random() * WORLD_H;
       g.fillStyle(0xd1c48a, 0.6);
       g.fillCircle(x, y, 2 + Math.random() * 2);
+    }
+    for (let i = 0; i < 90; i++) {
+      const x = Math.random() * WORLD_W;
+      const y = Math.random() * WORLD_H;
+      if (isInWater(x, y)) continue;
+      g.fillStyle(0xefe0c0, 1); g.fillRect(x - 1.5, y, 3, 5);
+      g.fillStyle(0xd23a3a, 1); g.fillEllipse(x, y, 9, 6);
+      g.fillStyle(0xffffff, 0.9); g.fillCircle(x - 2, y - 1, 1);
     }
     g.setDepth(-300);
   }
@@ -2655,6 +4469,107 @@ class ForestScene extends Phaser.Scene {
     }
   }
 
+  spawnCoin() {
+    let x, y, tries = 0;
+    do {
+      x = 120 + Math.random() * (WORLD_W - 240);
+      y = 120 + Math.random() * (WORLD_H - 240);
+      tries++;
+    } while ((isInWater(x, y) || (this.player && Math.hypot(x - this.player.x, y - this.player.y) < 200)) && tries < 12);
+    const big = Math.random() < 0.18; // moeda dourada grande, mais valiosa
+    this.coinEntities.push({ x, y, value: big ? 10 : 2, big, phase: Math.random() * Math.PI * 2 });
+  }
+
+  drawCoins(now) {
+    const g = this.coinsG;
+    g.clear();
+    for (const c of this.coinEntities) {
+      const bob = Math.sin(now / 300 + c.phase) * 5;
+      const cy = c.y + bob;
+      const r = c.big ? 13 : 9;
+      g.fillStyle(0x000000, 0.25);
+      g.fillEllipse(c.x, c.y + 13, r * 1.8, r * 0.55);
+      // largura "gira" pra dar sensação de moeda 3D
+      const w = Math.abs(Math.cos(now / 400 + c.phase)) * r + r * 0.35;
+      g.fillStyle(0xb8860b, 1);
+      g.fillEllipse(c.x, cy, w, r);
+      g.fillStyle(0xffd966, 1);
+      g.fillEllipse(c.x, cy, w * 0.74, r * 0.74);
+      g.fillStyle(0xfff0a0, 0.9);
+      g.fillEllipse(c.x - w * 0.18, cy - r * 0.2, w * 0.22, r * 0.3);
+      if (c.big) {
+        g.fillStyle(0xb8860b, 1);
+        g.fillCircle(c.x, cy, r * 0.16);
+      }
+    }
+  }
+
+  checkCoins(now) {
+    const reach = this.player.spec.radius + 22;
+    for (let i = this.coinEntities.length - 1; i >= 0; i--) {
+      const c = this.coinEntities[i];
+      if (Math.hypot(c.x - this.player.x, c.y - this.player.y) <= reach) {
+        this.coinsCollected += c.value;
+        SFX.coin(c.big ? 1 : 0.7);
+        this.spawnParticles(c.x, c.y, { count: c.big ? 12 : 7, color: [0xffd966, 0xfff0a0, 0xb8860b], speed: c.big ? 130 : 90, life: 500, size: 3, gravity: -30 });
+        this.floatText(c.x, c.y - 10, `+${c.value} 🪙`, '#ffd966');
+        this.coinEntities.splice(i, 1);
+        this.time.delayedCall(4000, () => { if (!this.gameOver) this.spawnCoin(); });
+      }
+    }
+  }
+
+  drawGigaCoin(now) {
+    const g = this.gigaCoinG;
+    g.clear();
+    const c = this.gigaCoin;
+    if (!c || c.collected) return;
+    const r = c.r;
+    const cy = c.y + Math.sin(now / 600) * 8;
+    // sombra
+    g.fillStyle(0x000000, 0.3);
+    g.fillEllipse(c.x, c.y + r * 0.95, r * 2.0, r * 0.5);
+    // aura pulsante
+    const pulse = 0.5 + 0.5 * Math.sin(now / 400);
+    g.fillStyle(0xfff0a0, 0.1 + pulse * 0.08);
+    g.fillCircle(c.x, cy, r * 1.25 + pulse * 8);
+    // corpo da moeda girando
+    const w = Math.abs(Math.cos(now / 700)) * r + r * 0.4;
+    g.fillStyle(0x8a6508, 1);
+    g.fillEllipse(c.x, cy, w, r);
+    g.fillStyle(0xffd966, 1);
+    g.fillEllipse(c.x, cy, w * 0.82, r * 0.82);
+    g.fillStyle(0xffe88a, 1);
+    g.fillEllipse(c.x, cy, w * 0.6, r * 0.6);
+    g.fillStyle(0xfff6c8, 0.9);
+    g.fillEllipse(c.x - w * 0.22, cy - r * 0.25, w * 0.18, r * 0.28);
+    // marca de valor
+    if (!this.gigaCoinLabel) {
+      this.gigaCoinLabel = this.add.text(c.x, cy, '10K', {
+        fontFamily: 'system-ui, sans-serif', fontSize: '48px',
+        color: '#8a6508', fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(-234);
+    }
+    this.gigaCoinLabel.setPosition(c.x, cy).setScale(Math.min(1, w / (r * 0.9)), 1).setVisible(true);
+  }
+
+  checkGigaCoin(now) {
+    const c = this.gigaCoin;
+    if (!c || c.collected) return;
+    // só o jogador (humano) pode pegar a moeda giga — nunca um NPC nem o jogador morto
+    if (!this.player || !this.player.isPlayer || this.player.dead) return;
+    if (Math.hypot(c.x - this.player.x, c.y - this.player.y) <= this.player.spec.radius + c.r) {
+      c.collected = true;
+      this.coinsCollected += c.value;
+      if (this.gigaCoinLabel) this.gigaCoinLabel.setVisible(false);
+      this.gigaCoinG.clear();
+      SFX.gigacoin();
+      this.shake(0.012, 600);
+      this.spawnParticles(c.x, c.y, { count: 60, color: [0xffd966, 0xfff0a0, 0xffe88a, 0xb8860b], speed: 320, life: 900, size: 6, gravity: 120 });
+      this.floatText(c.x, c.y - 40, '💰 MOEDA GIGA! +10.000 🪙', '#ffd966');
+    }
+  }
+
   collectPowerup(p, now) {
     const k = p.def.kind;
     this.itemsCollected = (this.itemsCollected || 0) + 1;
@@ -2670,6 +4585,8 @@ class ForestScene extends Phaser.Scene {
     } else if (k === 'gem') {
       this.bonus = (this.bonus || 0) + 5;
     }
+    SFX.powerup();
+    this.spawnParticles(p.x, p.y, { count: 14, color: [p.def.glow, 0xffffff], speed: 130, life: 600, size: 4, gravity: -40 });
     this.floatText(p.x, p.y - 10, p.def.name, '#ffffff');
   }
 
@@ -2677,8 +4594,103 @@ class ForestScene extends Phaser.Scene {
     const t = this.add.text(x, y, msg, {
       fontFamily: 'system-ui, sans-serif', fontSize: '20px', color,
       fontStyle: 'bold', stroke: '#0a140d', strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(100050);
+    }).setOrigin(0.5).setDepth(100050).setScale(0.4);
+    // pop: estoura o texto e depois sobe sumindo
+    this.tweens.add({ targets: t, scale: 1, duration: 220, ease: 'Back.Out' });
     this.tweens.add({ targets: t, y: y - 54, alpha: 0, duration: 1100, ease: 'Cubic.Out', onComplete: () => t.destroy() });
+  }
+
+  // --- juice: tremor de câmera (intensidade é fração da viewport) ---
+  shake(intensity = 0.004, duration = 200) {
+    if (this.cameras && this.cameras.main) this.cameras.main.shake(duration, intensity);
+  }
+
+  // volume espacial: 1 em cima do jogador, 0 a partir de maxD — pra sons de NPC
+  spatialVol(x, y, maxD = 720) {
+    if (!this.player) return 0;
+    const d = Math.hypot(x - this.player.x, y - this.player.y);
+    return Math.max(0, 1 - d / maxD);
+  }
+
+  // --- juice: partículas (pool simples desenhado num graphics) ---
+  spawnParticles(x, y, opts = {}) {
+    const {
+      count = 8, color = 0xffffff, speed = 120, spread = Math.PI * 2,
+      dir = 0, life = 500, size = 4, gravity = 0, drag = 0.9, sizeJitter = 0.5,
+    } = opts;
+    for (let i = 0; i < count; i++) {
+      const a = dir + (Math.random() - 0.5) * spread;
+      const sp = speed * (0.4 + Math.random() * 0.8);
+      this.particles.push({
+        x, y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life, maxLife: life,
+        color: Array.isArray(color) ? color[Math.floor(Math.random() * color.length)] : color,
+        size: Math.max(1, size * (1 - sizeJitter + Math.random() * sizeJitter * 2)),
+        gravity, drag,
+      });
+    }
+    // teto de segurança pra não acumular partícula à toa
+    if (this.particles.length > 600) this.particles.splice(0, this.particles.length - 600);
+  }
+
+  drawParticles(delta) {
+    const g = this.particleG;
+    g.clear();
+    const dt = delta / 1000;
+    this.particles = this.particles.filter((p) => {
+      p.life -= delta;
+      if (p.life <= 0) return false;
+      p.vx *= p.drag; p.vy *= p.drag;
+      p.vy += p.gravity * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      const a = Math.max(0, p.life / p.maxLife);
+      g.fillStyle(p.color, a);
+      g.fillCircle(p.x, p.y, p.size * (0.4 + 0.6 * a));
+      return true;
+    });
+  }
+
+  // --- caos animal: tick + disparo dos eventos ---
+  updateEvents(now) {
+    this.eventOverlay.clear();
+    if (now < this.eventActiveUntil) {
+      const a = 0.1 * (0.6 + 0.4 * Math.sin(now / 120));
+      this.eventOverlay.fillStyle(this.eventColor, a);
+      this.eventOverlay.fillRect(0, 0, VIEW_W, VIEW_H);
+    }
+    if (this.gameOver) return;
+    if (now >= this.nextEventAt) {
+      this.triggerRandomEvent(now);
+      this.nextEventAt = now + 16000 + Math.random() * 10000;
+    }
+  }
+
+  triggerRandomEvent(now) {
+    const ev = EVENTS[Math.floor(Math.random() * EVENTS.length)];
+    this.eventActiveUntil = now + (ev.duration || 7000);
+    this.eventColor = ev.color;
+    ev.apply(this, now);
+    SFX.event();
+    this.shake(0.006, 350);
+    this.announceEvent(`${ev.emoji} ${ev.name}`, ev.text, ev.cssColor);
+  }
+
+  announceEvent(title, sub, color = '#ffd966') {
+    if (!this.eventBanner) {
+      this.eventBanner = this.add.text(VIEW_W / 2, 200, '', {
+        fontFamily: 'system-ui, sans-serif', fontSize: '42px', fontStyle: 'bold',
+        color: '#ffffff', stroke: '#0a140d', strokeThickness: 7, align: 'center',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(100010);
+      this.eventBannerSub = this.add.text(VIEW_W / 2, 244, '', {
+        fontFamily: 'system-ui, sans-serif', fontSize: '20px',
+        color: '#ffffff', backgroundColor: '#000000aa', padding: { x: 10, y: 4 }, align: 'center',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(100010);
+    }
+    this.eventBanner.setText(title).setColor(color).setAlpha(1).setScale(0.5);
+    this.eventBannerSub.setText(sub).setAlpha(1);
+    this.tweens.add({ targets: this.eventBanner, scale: 1, duration: 380, ease: 'Back.Out' });
+    this.tweens.add({ targets: [this.eventBanner, this.eventBannerSub], alpha: 0, delay: 2200, duration: 700 });
   }
 
   generateGrass() {
@@ -2798,6 +4810,17 @@ class ForestScene extends Phaser.Scene {
     }
   }
 
+  updateAmbient(now) {
+    if (now < this.nextAmbientAt) return;
+    if (this.isNight) {
+      SFX.cricket(0.8);
+      this.nextAmbientAt = now + 900 + Math.random() * 1100;
+    } else {
+      SFX.chirp(0.9);
+      this.nextAmbientAt = now + 1800 + Math.random() * 3500;
+    }
+  }
+
   updateEnvironment(now) {
     const elapsed = now - this.gameStartTime;
     const cycle = 70000;
@@ -2831,7 +4854,7 @@ class ForestScene extends Phaser.Scene {
     const scoreText = this.preyTarget
       ? `caça: ${this.score}/${this.preyTarget} (meta pra vencer)`
       : this.preyWinTarget
-      ? `seu time caçado: ${teamKilled}/${this.preyWinTarget} (precisa pro predador vencer)`
+      ? `seu time caçado: ${teamKilled}/${this.preyWinTarget} (se o predador chegar nisso, ele vence)`
       : `comidos: ${this.score}`;
     const isPredator = this.player.spec.eats.length > 0;
     let fKeyInfo;
@@ -2849,13 +4872,123 @@ class ForestScene extends Phaser.Scene {
     }
     this.hud.setText(
       `você é ${this.player.spec.label}   •   modo: ${GAME_MODES[this.mode]?.label || this.mode}   •   tempo: ${mm}:${ss}${swimTag}${buffTag}${timeTag}${rainTag}${hideTag}\n` +
-      `wasd  shift=correr  e=habilidade  ${fKeyInfo}  b=isca  v=avisar  n=ajuda  h=base  p/esc=menu\n` +
-      `${scoreText}   •   ✨ itens: ${this.itemsCollected || 0}${this.bonus ? ` (+${this.bonus} bônus)` : ''}   •   por perto: ${near}`
+      `wasd/clique=mover  shift=correr  e=habilidade  ${fKeyInfo}  b=isca  v=avisar  n=ajuda  h=base  j=som  p=pausa  esc=menu\n` +
+      `${scoreText}   •   🪙 ${this.coinsCollected || 0}   •   ✨ itens: ${this.itemsCollected || 0}${this.bonus ? ` (+${this.bonus} bônus)` : ''}   •   por perto: ${near}`
     );
+  }
+
+  togglePause() {
+    if (this.gameOver || this.passageMenuOpen) return;
+    this.paused = !this.paused;
+    this.pauseOverlay.setVisible(this.paused);
+    this.pauseText.setVisible(this.paused);
+    if (this.paused) {
+      this._pauseStart = this.time.now;
+    } else {
+      // empurra os prazos baseados em tempo pra pausa não "consumir" a partida
+      const d = this.time.now - (this._pauseStart || this.time.now);
+      this.gameStartTime += d;
+      this.abilityReadyAt += d;
+      if (this.giantReadyAt) this.giantReadyAt += d;
+      this.nextEventAt += d;
+      this.nextAmbientAt += d;
+      if (this.eventActiveUntil) this.eventActiveUntil += d;
+      this.lastStepAt = this.time.now;
+      this.moveTarget = null;
+      this.pointerHeld = false;
+    }
+  }
+
+  drawMinimap(now) {
+    const g = this.minimapG;
+    const m = this.minimapRect;
+    g.clear();
+    g.fillStyle(0x0a140d, 0.72);
+    g.fillRoundedRect(m.x - 4, m.y - 4, m.w + 8, m.h + 8, 8);
+    g.fillStyle(0x244d2c, 1);
+    g.fillRect(m.x, m.y, m.w, m.h);
+    const sx = m.w / WORLD_W, sy = m.h / WORLD_H;
+    // rio
+    g.lineStyle(Math.max(2, 70 * sy * 2), 0x2f6fa8, 0.5);
+    g.beginPath();
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24;
+      const wy = WORLD_H * 0.55 + Math.sin(t * 6) * 160 + Math.cos(t * 3) * 60;
+      const px = m.x + t * WORLD_W * sx, py = m.y + wy * sy;
+      if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+    }
+    g.strokePath();
+    // bases
+    for (const base of BASES) {
+      g.fillStyle(ANIMAL_TYPES[base.type].body, 0.5);
+      g.fillCircle(m.x + base.x * sx, m.y + base.y * sy, Math.max(2, base.radius * sx));
+    }
+    // bichos (cor por relação ao jogador)
+    const myType = this.player.type;
+    const myEats = this.player.spec.eats;
+    for (const a of this.animals) {
+      if (a.isPlayer || a.dead || now < (a.invisibleUntil || 0)) continue;
+      let col = 0x9aa6a0;
+      if (a.spec.eats.includes(myType)) col = 0xff5050;
+      else if (myEats.includes(a.type)) col = 0x6aff8a;
+      g.fillStyle(col, 1);
+      g.fillCircle(m.x + a.x * sx, m.y + a.y * sy, 2.2);
+    }
+    // jogador
+    const pxp = m.x + this.player.x * sx, pyp = m.y + this.player.y * sy;
+    const pulse = 1 + 0.3 * Math.sin(now / 200);
+    g.lineStyle(2, 0xffd966, 0.9);
+    g.strokeCircle(pxp, pyp, 5 * pulse);
+    g.fillStyle(0xffd966, 1);
+    g.fillCircle(pxp, pyp, 3);
+    g.lineStyle(2, 0xf4e4b0, 0.6);
+    g.strokeRect(m.x, m.y, m.w, m.h);
+  }
+
+  drawEdgeIndicators(now) {
+    const g = this.edgeG;
+    g.clear();
+    if (this.gameOver || this.paused) return;
+    const cam = this.cameras.main;
+    const myType = this.player.type;
+    const myEats = this.player.spec.eats;
+    let threat = null, threatD = Infinity, prey = null, preyD = Infinity;
+    for (const a of this.animals) {
+      if (a.isPlayer || a.dead || now < (a.invisibleUntil || 0)) continue;
+      const d = Math.hypot(a.x - this.player.x, a.y - this.player.y);
+      if (a.spec.eats.includes(myType)) { if (d < threatD) { threat = a; threatD = d; } }
+      else if (myEats.includes(a.type)) { if (d < preyD) { prey = a; preyD = d; } }
+    }
+    const drawFor = (a, color) => {
+      if (!a) return;
+      const ssx = a.x - cam.scrollX, ssy = a.y - cam.scrollY;
+      if (ssx >= 0 && ssx <= VIEW_W && ssy >= 0 && ssy <= VIEW_H) return; // na tela: não precisa de seta
+      const cx = VIEW_W / 2, cy = VIEW_H / 2;
+      const ddx = ssx - cx, ddy = ssy - cy;
+      const margin = 46;
+      const halfW = VIEW_W / 2 - margin, halfH = VIEW_H / 2 - margin;
+      const tx = ddx !== 0 ? halfW / Math.abs(ddx) : Infinity;
+      const ty = ddy !== 0 ? halfH / Math.abs(ddy) : Infinity;
+      const t = Math.min(tx, ty);
+      const ex = cx + ddx * t, ey = cy + ddy * t;
+      const ang = Math.atan2(ddy, ddx);
+      g.fillStyle(0x0a140d, 0.55);
+      g.fillCircle(ex, ey, 17);
+      const ux = Math.cos(ang), uy = Math.sin(ang), pxx = -uy, pyy = ux, s = 13;
+      g.fillStyle(color, 0.95);
+      g.fillTriangle(
+        ex + ux * s, ey + uy * s,
+        ex - ux * s * 0.4 + pxx * s * 0.7, ey - uy * s * 0.4 + pyy * s * 0.7,
+        ex - ux * s * 0.4 - pxx * s * 0.7, ey - uy * s * 0.4 - pyy * s * 0.7,
+      );
+    };
+    drawFor(threat, 0xff5050);
+    drawFor(prey, 0x6aff8a);
   }
 
   update(_, delta) {
     const now = this.time.now;
+    if (this.paused) return;
     this.updateHiding();
     this.updateSprint(delta);
     let dx = 0, dy = 0;
@@ -2865,7 +4998,30 @@ class ForestScene extends Phaser.Scene {
       if (this.cursors.up.isDown || this.wasd.W.isDown) dy -= 1;
       if (this.cursors.down.isDown || this.wasd.S.isDown) dy += 1;
     }
+    // mover por clique/arraste (mouse/toque) quando nenhuma tecla está pressionada
+    if (dx !== 0 || dy !== 0) {
+      this.moveTarget = null; // teclado tem prioridade e cancela o destino
+    } else if (this.moveTarget && !this.passageMenuOpen) {
+      const tdx = this.moveTarget.x - this.player.x;
+      const tdy = this.moveTarget.y - this.player.y;
+      if (Math.hypot(tdx, tdy) > 8) { dx = tdx; dy = tdy; }
+      else { this.moveTarget = null; }
+    }
     this.player.updatePlayer(dx, dy, delta, now);
+
+    // passos: som ritmado + poeira quando acelerado
+    if (!this.gameOver && !this.player.dead && (dx !== 0 || dy !== 0)) {
+      const fast = this.sprintMult > 1 || now < this.player.speedMultUntil;
+      const interval = fast ? 170 : 300;
+      if (now - this.lastStepAt > interval) {
+        this.lastStepAt = now;
+        SFX.step(1 + (8 - this.player.spec.radius) * 0.04);
+        if (fast) {
+          this.spawnParticles(this.player.x, this.player.y + this.player.spec.radius * 0.6,
+            { count: 3, color: [0x6b5a3a, 0x8a7450], speed: 45, life: 360, size: 3, gravity: 140, dir: -Math.PI / 2, spread: Math.PI });
+        }
+      }
+    }
 
     for (const a of this.animals) {
       if (!a.isPlayer) a.updateNpc(delta, now, this.player);
@@ -2873,6 +5029,8 @@ class ForestScene extends Phaser.Scene {
 
     if (!this.gameOver && !this.passageMenuOpen) this.handleEating(now);
     if (!this.gameOver && !this.passageMenuOpen) this.checkPowerups(now);
+    if (!this.gameOver && !this.passageMenuOpen) this.checkCoins(now);
+    if (!this.gameOver && !this.passageMenuOpen) this.checkGigaCoin(now);
     if (!this.gameOver && !this.passageMenuOpen && now - this.gameStartTime >= this.gameDuration) this.onTimeUp();
 
     this.nearbyPassage = this.nearbyPassageFor(this.player.x, this.player.y);
@@ -2888,13 +5046,20 @@ class ForestScene extends Phaser.Scene {
     this.updateForceFields(now, delta);
     this.drawForceFields(now);
     this.drawPowerups(now);
+    this.drawCoins(now);
+    this.drawGigaCoin(now);
     this.updateDigTrails(now);
     this.updateEnvironment(now);
+    this.updateAmbient(now);
+    if (!this.passageMenuOpen) this.updateEvents(now);
     this.drawStaminaBar();
     if (!this.gameOver && !this.passageMenuOpen) this.checkHunterLostPrey(now);
     this.drawFlashes(delta);
+    this.drawParticles(delta);
     this.drawAbilityBar(now);
     this.drawHelpArrows(now);
+    this.drawMinimap(now);
+    this.drawEdgeIndicators(now);
     if (this.passageMenuOpen) this.renderPassageMenu();
     this.updateHud(now);
   }
@@ -2906,7 +5071,7 @@ new Phaser.Game({
   width: VIEW_W,
   height: VIEW_H,
   backgroundColor: '#1a2e1a',
-  scene: [MenuScene, AnimapediaScene, ForestScene],
+  scene: [MenuScene, AnimapediaScene, AlbumScene, ShopScene, StudioScene, GalleryScene, ForestScene],
   pixelArt: false,
   scale: {
     mode: Phaser.Scale.FIT,
@@ -2920,6 +5085,9 @@ new Phaser.Game({
     roundPixels: false,
     powerPreference: 'high-performance',
     mipmapFilter: 'LINEAR_MIPMAP_LINEAR',
-    batchSize: 36864,
+    // buffer de geometria do WebGL: ~234.320 quads × 6 vértices × ~28 bytes ≈ +8 MB de folga
+    // (quanto maior, menos o lote "estoura" quando há muita coisa na tela — peças param de sumir/piscar)
+    batchSize: 234320,
+    maxTextures: 16,
   },
 });
