@@ -2,15 +2,63 @@
 <html lang="pt-br">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Loucura Animal 2</title>
+    <!-- PWA: dá pra instalar o jogo como app -->
+    <link rel="manifest" href="./manifest.json" />
+    <meta name="theme-color" content="#0d9488" />
+    <link rel="icon" type="image/png" href="./icon-192.png" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Loucura Animal 2" />
     <style>
-      html, body { margin: 0; height: 100%; background: #0f1115; display: flex; align-items: center; justify-content: center; font-family: system-ui, sans-serif; color: #e6e6e6; }
-      #game { box-shadow: 0 10px 40px rgba(0,0,0,.5); border-radius: 8px; overflow: hidden; }
+      html, body { margin: 0; height: 100%; background: #0f1115; font-family: system-ui, sans-serif; color: #e6e6e6; overflow: hidden; }
+      body { display: flex; align-items: center; justify-content: center; }
+      /* No celular o jogo ocupa a tela inteira */
+      #game { width: 100vw; height: 100dvh; touch-action: none; }
+      #game canvas { touch-action: none; }
+      /* No desktop mantém a proporção 4:3, centralizado e nítido */
+      @media (min-width: 700px) and (min-height: 520px) {
+        #game { width: 800px; height: 600px; box-shadow: 0 10px 40px rgba(0,0,0,.5); border-radius: 8px; overflow: hidden; }
+      }
+      #installBtn {
+        display: none; position: fixed; right: 10px; bottom: 10px; z-index: 9999;
+        background: #0d9488; color: #fff; border: 2px solid #fde047; border-radius: 10px;
+        font: bold 14px system-ui, sans-serif; padding: 8px 12px; cursor: pointer;
+        box-shadow: 0 4px 14px rgba(0,0,0,.4);
+      }
+      #installBtn:active { transform: translateY(1px); }
     </style>
   </head>
   <body>
     <div id="game"></div>
+    <button id="installBtn" aria-label="Instalar o jogo">📲 Instalar</button>
     <script type="module" src="/src/main.js"></script>
+    <script>
+      // registra o service worker (necessário pro app ser instalável e funcionar offline)
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').catch(() => {});
+        });
+      }
+      // botão "Instalar": aparece quando o navegador permite instalar o app
+      let deferredPrompt = null;
+      const installBtn = document.getElementById('installBtn');
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        installBtn.style.display = 'block';
+      });
+      installBtn.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        installBtn.style.display = 'none';
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+      });
+      window.addEventListener('appinstalled', () => { installBtn.style.display = 'none'; });
+    </script>
   </body>
 </html>
