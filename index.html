@@ -60,5 +60,115 @@
       });
       window.addEventListener('appinstalled', () => { installBtn.style.display = 'none'; });
     </script>
-  </body>
+  
+  <!-- Convite de instalar: aparece quando o jogo é aberto pelo botão "📲 Instalar app"
+       do site (cacaivilela.github.io), que abre o endereço com ?instalar=1 -->
+  <script>
+  (function () {
+    if (!/[?&]instalar=1/.test(location.search)) return;
+
+    var NOME = 'o Loucura Animal 2';
+    var caixa = null;
+    var promptEvt = null;
+    var instalado = window.matchMedia('(display-mode: standalone)').matches
+      || window.matchMedia('(display-mode: fullscreen)').matches
+      || window.navigator.standalone === true;
+
+    function limparEndereco() {
+      try {
+        var u = new URL(location.href);
+        u.searchParams.delete('instalar');
+        history.replaceState(null, '', u.pathname + u.search + u.hash);
+      } catch (e) {}
+    }
+
+    function fechar() {
+      if (caixa) { caixa.remove(); caixa = null; }
+      limparEndereco();
+    }
+
+    function mostrar(texto) {
+      if (caixa) return atualizar(texto);
+      caixa = document.createElement('div');
+      caixa.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;'
+        + 'align-items:center;justify-content:center;padding:20px;'
+        + 'background:rgba(6,4,18,.72);backdrop-filter:blur(3px);'
+        + 'font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif';
+      caixa.innerHTML = '<div style="max-width:420px;width:100%;background:#151228;color:#fff;'
+        + 'border:2px solid rgba(255,255,255,.14);border-radius:18px;padding:24px;text-align:center;'
+        + 'box-shadow:0 20px 60px rgba(0,0,0,.5)">'
+        + '<div style="font-size:44px;line-height:1">📲</div>'
+        + '<h2 style="margin:10px 0 6px;font-size:22px">Instalar ' + NOME + '?</h2>'
+        + '<p id="crc-inst-msg" style="margin:0 0 18px;color:#c9c4e8;font-size:15px">'
+        + 'Fica com ícone na sua tela, abre em janela própria e dá pra jogar até sem internet.</p>'
+        + '<button id="crc-inst-sim" style="width:100%;cursor:pointer;font:inherit;font-weight:700;'
+        + 'font-size:17px;padding:14px;border:0;border-radius:12px;background:#16a34a;color:#fff">'
+        + '📲 INSTALAR</button>'
+        + '<button id="crc-inst-nao" style="width:100%;margin-top:10px;cursor:pointer;font:inherit;'
+        + 'padding:10px;border:0;border-radius:12px;background:transparent;color:#a5a0c8">'
+        + 'agora não, quero jogar</button>'
+        + '</div>';
+      document.body.appendChild(caixa);
+      caixa.querySelector('#crc-inst-nao').addEventListener('click', fechar);
+      caixa.addEventListener('click', function (e) { if (e.target === caixa) fechar(); });
+      caixa.querySelector('#crc-inst-sim').addEventListener('click', async function () {
+        if (promptEvt) {
+          promptEvt.prompt();
+          var escolha = null;
+          try { escolha = await promptEvt.userChoice; } catch (e) {}
+          promptEvt = null;
+          if (!escolha || escolha.outcome !== 'accepted') return fechar();
+          return;
+        }
+        atualizar(comoInstalarNaMao());
+      });
+      if (texto) atualizar(texto);
+    }
+
+    function atualizar(texto) {
+      if (!caixa || !texto) return;
+      var msg = caixa.querySelector('#crc-inst-msg');
+      if (msg) msg.textContent = texto;
+    }
+
+    function comoInstalarNaMao() {
+      var ua = navigator.userAgent || '';
+      if (/iPhone|iPad|iPod/.test(ua)) {
+        return 'No iPhone/iPad: toque em Compartilhar ⬆️ na barra do Safari e depois em "Adicionar à Tela de Início".';
+      }
+      if (/Android/.test(ua)) {
+        return 'No Android: abra o menu ⋮ do navegador e toque em "Instalar aplicativo" (ou "Adicionar à tela inicial").';
+      }
+      return 'No computador: clique no ícone de instalar na barra de endereço (ou menu ⋮ → "Instalar"). O Firefox não instala aplicativos web — use o Chrome ou o Edge.';
+    }
+
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      promptEvt = e;
+      mostrar();
+    });
+
+    window.addEventListener('appinstalled', function () {
+      promptEvt = null;
+      atualizar('Pronto! ' + NOME + ' foi instalado 🎉 Procure o ícone na sua tela.');
+      setTimeout(fechar, 2500);
+    });
+
+    function comecar() {
+      if (instalado) {
+        mostrar('Boa notícia: ' + NOME + ' já está instalado 🎉 Abra pelo ícone na sua tela.');
+        return;
+      }
+      // Se em 2,5s o navegador não ofereceu instalação, explicamos como fazer na mão.
+      setTimeout(function () { if (!promptEvt) mostrar(comoInstalarNaMao()); }, 2500);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', comecar);
+    } else {
+      comecar();
+    }
+  })();
+  </script>
+</body>
 </html>
